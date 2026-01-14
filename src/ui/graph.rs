@@ -34,9 +34,12 @@ pub struct Graph<'a> {
     paused: bool,
     /// Whether to hide the cursor
     hide_cursor: bool,
+    /// Optional RTT range to highlight (min_rtt, max_rtt, is_timeout)
+    highlight_range: Option<(f64, f64, bool)>,
 }
 
 impl<'a> Graph<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         results: &'a VecDeque<PingResult>,
         color_scale: &'a ColorScale,
@@ -45,6 +48,7 @@ impl<'a> Graph<'a> {
         result_base_seq: usize,
         paused: bool,
         hide_cursor: bool,
+        highlight_range: Option<(f64, f64, bool)>,
     ) -> Self {
         Self {
             results,
@@ -54,6 +58,7 @@ impl<'a> Graph<'a> {
             result_base_seq,
             paused,
             hide_cursor,
+            highlight_range,
         }
     }
 
@@ -172,11 +177,39 @@ impl Widget for Graph<'_> {
                 let x = area.x + col as u16;
                 let y = area.y + screen_row as u16;
 
+                // Check if this sample should be highlighted
+                let is_highlighted =
+                    if let Some((min_rtt, max_rtt, is_timeout_highlight)) = self.highlight_range {
+                        if is_timeout_highlight {
+                            // Highlight timeouts
+                            result.rtt_ms_f64().is_none()
+                        } else if let Some(rtt) = result.rtt_ms_f64() {
+                            // Highlight samples within the RTT range
+                            rtt >= min_rtt && rtt < max_rtt
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                // Highlight color: bright red for visibility
+                let highlight_color = Color::Rgb(255, 50, 50);
+
                 if let Some(rtt) = result.rtt_ms_f64() {
-                    let color = self.color_scale.color_for_rtt_f64(Some(rtt));
+                    let color = if is_highlighted {
+                        highlight_color
+                    } else {
+                        self.color_scale.color_for_rtt_f64(Some(rtt))
+                    };
                     buf.set_string(x, y, FILLED_SQUARE, Style::default().fg(color));
                 } else {
-                    buf.set_string(x, y, TIMEOUT_CHAR, Style::default().fg(Color::Indexed(240)));
+                    let color = if is_highlighted {
+                        highlight_color
+                    } else {
+                        Color::Indexed(240)
+                    };
+                    buf.set_string(x, y, TIMEOUT_CHAR, Style::default().fg(color));
                 }
             }
         }

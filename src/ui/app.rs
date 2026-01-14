@@ -9,7 +9,8 @@ const MAX_RECENT_RTT_COUNT: usize = 500;
 /// Popup info for clicked ping
 #[derive(Clone)]
 pub struct PingPopup {
-    pub result_idx: usize,
+    /// Stable sequence number of the ping result (not VecDeque index)
+    pub result_seq: usize,
     pub screen_x: u16,
     pub screen_y: u16,
 }
@@ -171,6 +172,13 @@ pub struct App {
     pub quit_confirm_yes_area: Option<(u16, u16, u16)>,
     /// Quit dialog No button area (x, y, width)
     pub quit_confirm_no_area: Option<(u16, u16, u16)>,
+    /// Legend area dimensions for mouse calculations
+    pub legend_area: Option<(u16, u16, u16, u16)>, // x, y, width, height
+    /// Currently highlighted RTT range from legend hover (min_rtt, max_rtt, is_timeout)
+    /// When Some, graph samples within this range will be highlighted
+    pub highlight_rtt_range: Option<(f64, f64, bool)>,
+    /// Whether we were in live mode before the popup was shown (to restore when popup closes)
+    pub popup_was_live: bool,
 }
 
 impl App {
@@ -230,6 +238,9 @@ impl App {
             quit_confirm_no_focused: false,
             quit_confirm_yes_area: None,
             quit_confirm_no_area: None,
+            legend_area: None,
+            highlight_rtt_range: None,
+            popup_was_live: false,
         }
     }
 

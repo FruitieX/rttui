@@ -271,11 +271,20 @@ async fn run_app(
                     app.result_base_seq,
                     app.paused,
                     app.config.hide_cursor,
+                    app.highlight_rtt_range,
                 );
                 frame.render_widget(graph, graph_chunks[0]);
 
                 let legend = Legend::new(&app.color_scale);
                 frame.render_widget(legend, graph_chunks[1]);
+
+                // Store legend area for mouse calculations
+                app.legend_area = Some((
+                    graph_chunks[1].x,
+                    graph_chunks[1].y,
+                    graph_chunks[1].width,
+                    graph_chunks[1].height,
+                ));
 
                 graph_chunks[0]
             } else {
@@ -287,8 +296,10 @@ async fn run_app(
                     app.result_base_seq,
                     app.paused,
                     app.config.hide_cursor,
+                    app.highlight_rtt_range,
                 );
                 frame.render_widget(graph, main_chunks[1]);
+                app.legend_area = None; // No legend when terminal is narrow
                 main_chunks[1]
             };
 
@@ -312,70 +323,78 @@ async fn run_app(
             ));
 
             // Render popup if present
-            if let Some(popup) = &app.popup
-                && let Some(result) = app.results.get(popup.result_idx)
-            {
-                let rtt_str = result
-                    .rtt_ms_f64()
-                    .map(|ms| format!("{:.2}ms", ms))
-                    .unwrap_or_else(|| "TIMEOUT".to_string());
-                let jitter_str = result
-                    .jitter_ms_f64()
-                    .map(|ms| format!("±{:.2}ms", ms))
-                    .unwrap_or_else(|| "-".to_string());
-                let time_str = result.timestamp_str();
+            if let Some(popup) = &app.popup {
+                // Convert stable sequence number to VecDeque index
+                // If the sample has been evicted from the buffer, skip rendering
+                let result_idx = popup.result_seq.checked_sub(app.result_base_seq);
+                if let Some(idx) = result_idx
+                    && let Some(result) = app.results.get(idx)
+                {
+                    let rtt_str = result
+                        .rtt_ms_f64()
+                        .map(|ms| format!("{:.2}ms", ms))
+                        .unwrap_or_else(|| "TIMEOUT".to_string());
+                    let jitter_str = result
+                        .jitter_ms_f64()
+                        .map(|ms| format!("±{:.2}ms", ms))
+                        .unwrap_or_else(|| "-".to_string());
+                    let time_str = result.timestamp_str();
 
-                let popup_width = 28u16;
-                let popup_height = 6u16;
+                    let popup_width = 28u16;
+                    let popup_height = 6u16;
 
-                // Position popup near click but within bounds
-                let popup_x = popup
-                    .screen_x
-                    .saturating_sub(popup_width / 2)
-                    .min(size.width.saturating_sub(popup_width));
-                let popup_y = if popup.screen_y > popup_height + 1 {
-                    popup.screen_y - popup_height - 1
-                } else {
-                    popup.screen_y + 1
+                    // Position popup near click but within bounds
+                    let popup_x = popup
+                        .screen_x
+                        .saturating_sub(popup_width / 2)
+                        .min(size.width.saturating_sub(popup_width));
+                    let popup_y = if popup.screen_y > popup_height + 1 {
+                        popup.screen_y - popup_height - 1
+                    } else {
+                        popup.screen_y + 1
+                    }
+                    .min(size.height.saturating_sub(popup_height));
+
+                    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+                    frame.render_widget(Clear, popup_area);
+
+                    let popup_block = Block::default()
+                        .title(" Ping Info ")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Cyan))
+                        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+
+                    let popup_text = vec![
+                        Line::from(vec![
+                            Span::styled("Time:   ", Style::default().fg(Color::Gray)),
+                            Span::styled(&time_str, Style::default().fg(Color::White)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("RTT:    ", Style::default().fg(Color::Gray)),
+                            Span::styled(
+                                &rtt_str,
+                                Style::default()
+                                    .fg(Color::White)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("Jitter: ", Style::default().fg(Color::Gray)),
+                            Span::styled(&jitter_str, Style::default().fg(Color::Yellow)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("Seq:    ", Style::default().fg(Color::Gray)),
+                            Span::styled(
+                                format!("{}", result.seq),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                        ]),
+                    ];
+
+                    let popup_para = Paragraph::new(popup_text).block(popup_block);
+                    frame.render_widget(popup_para, popup_area);
                 }
-                .min(size.height.saturating_sub(popup_height));
-
-                let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
-
-                frame.render_widget(Clear, popup_area);
-
-                let popup_block = Block::default()
-                    .title(" Ping Info ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .style(Style::default().bg(Color::DarkGray));
-
-                let popup_text = vec![
-                    Line::from(vec![
-                        Span::styled("Time:   ", Style::default().fg(Color::Gray)),
-                        Span::styled(&time_str, Style::default().fg(Color::White)),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("RTT:    ", Style::default().fg(Color::Gray)),
-                        Span::styled(
-                            &rtt_str,
-                            Style::default()
-                                .fg(Color::White)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("Jitter: ", Style::default().fg(Color::Gray)),
-                        Span::styled(&jitter_str, Style::default().fg(Color::Yellow)),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("Seq:    ", Style::default().fg(Color::Gray)),
-                        Span::styled(format!("{}", result.seq), Style::default().fg(Color::Cyan)),
-                    ]),
-                ];
-
-                let popup_para = Paragraph::new(popup_text).block(popup_block);
-                frame.render_widget(popup_para, popup_area);
             }
 
             // Render settings menu if open
@@ -1055,6 +1074,28 @@ async fn run_app(
                                     }
                                 }
 
+                                // Handle legend click to highlight matching samples
+                                if !handled && let Some((lx, ly, lw, lh)) = app.legend_area {
+                                    let mx = mouse.column;
+                                    let my = mouse.row;
+
+                                    if mx >= lx && mx < lx + lw && my >= ly && my < ly + lh {
+                                        // Calculate which legend entry was clicked
+                                        // Legend has a border (1 row) and title, content starts at ly + 1
+                                        let content_y = ly + 1;
+                                        if my >= content_y && my < ly + lh - 1 {
+                                            let entry_idx = (my - content_y) as usize;
+                                            // Get the RTT range for this legend entry
+                                            if let Some(range) =
+                                                app.color_scale.legend_entry_range(entry_idx)
+                                            {
+                                                app.highlight_rtt_range = Some(range);
+                                            }
+                                        }
+                                        handled = true;
+                                    }
+                                }
+
                                 // Show tooltip on graph click if not handled
                                 if !handled && let Some((gx, gy, gw, gh)) = app.graph_area {
                                     let mx = mouse.column;
@@ -1077,8 +1118,17 @@ async fn run_app(
                                             screen_row,
                                             screen_col,
                                         ) {
+                                            // Freeze the view if we're in live mode
+                                            if app.view_end_row.is_none() {
+                                                app.popup_was_live = true;
+                                                app.view_end_row = Some(total_rows);
+                                            } else {
+                                                app.popup_was_live = false;
+                                            }
+                                            // Convert VecDeque index to stable sequence number
+                                            let result_seq = app.result_base_seq + idx;
                                             app.popup = Some(PingPopup {
-                                                result_idx: idx,
+                                                result_seq,
                                                 screen_x: mx,
                                                 screen_y: my,
                                             });
@@ -1091,6 +1141,27 @@ async fn run_app(
                                 }
                             }
                             MouseEventKind::Drag(MouseButton::Left) => {
+                                // Handle legend drag to update highlight
+                                if let Some((lx, ly, lw, lh)) = app.legend_area {
+                                    let mx = mouse.column;
+                                    let my = mouse.row;
+
+                                    if mx >= lx && mx < lx + lw && my >= ly && my < ly + lh {
+                                        let content_y = ly + 1;
+                                        if my >= content_y && my < ly + lh - 1 {
+                                            let entry_idx = (my - content_y) as usize;
+                                            if let Some(range) =
+                                                app.color_scale.legend_entry_range(entry_idx)
+                                            {
+                                                app.highlight_rtt_range = Some(range);
+                                            }
+                                        }
+                                    } else {
+                                        // Clear highlight when dragging outside legend
+                                        app.highlight_rtt_range = None;
+                                    }
+                                }
+
                                 // Show tooltip while mouse button is held (Down or Drag)
                                 if let Some((gx, gy, gw, gh)) = app.graph_area {
                                     let mx = mouse.column;
@@ -1114,8 +1185,10 @@ async fn run_app(
                                             screen_row,
                                             screen_col,
                                         ) {
+                                            // Convert VecDeque index to stable sequence number
+                                            let result_seq = app.result_base_seq + idx;
                                             app.popup = Some(PingPopup {
-                                                result_idx: idx,
+                                                result_seq,
                                                 screen_x: mx,
                                                 screen_y: my,
                                             });
@@ -1128,8 +1201,14 @@ async fn run_app(
                                 }
                             }
                             MouseEventKind::Up(MouseButton::Left) => {
-                                // Hide tooltip when mouse button released
+                                // Hide tooltip and clear highlight when mouse button released
                                 app.popup = None;
+                                app.highlight_rtt_range = None;
+                                // Restore live mode if we were in live mode before the popup
+                                if app.popup_was_live {
+                                    app.view_end_row = None;
+                                    app.popup_was_live = false;
+                                }
                             }
                             MouseEventKind::ScrollUp => {
                                 app.scroll_up(3);

@@ -209,19 +209,6 @@ impl ColorScale {
         }
     }
 
-    /// Get color for a given RTT value using smooth RGB gradient
-    pub fn color_for_rtt(&self, rtt_ms: Option<u64>) -> Color {
-        match rtt_ms {
-            None => Color::Indexed(240), // Gray for timeout
-            Some(rtt) => {
-                // Calculate percentage of max RTT (capped at 100%)
-                let ratio = (rtt as f64 / self.max_rtt as f64).min(1.0);
-                let (r, g, b) = gradient(&self.get_stops(), ratio);
-                Color::Rgb(r, g, b)
-            }
-        }
-    }
-
     /// Get color for a given RTT value (f64 version for sub-ms precision)
     pub fn color_for_rtt_f64(&self, rtt_ms: Option<f64>) -> Color {
         match rtt_ms {
@@ -236,21 +223,33 @@ impl ColorScale {
 
     /// Get legend entries as (color, label) pairs
     pub fn legend_entries(&self) -> Vec<(Color, String)> {
-        // Generate 10 evenly spaced legend entries
-        let num_entries = 10;
+        let num_entries = 11;
         let mut entries = Vec::new();
+
+        // Use floating point display when scale is small to avoid quantization
+        let use_decimals = self.max_rtt < 10;
 
         for i in 0..num_entries {
             let ratio = i as f64 / (num_entries - 1) as f64;
-            let rtt = (ratio * self.max_rtt as f64) as u64;
-            let color = self.color_for_rtt(Some(rtt));
+            let rtt_f64 = ratio * self.max_rtt as f64;
+            let color = self.color_for_rtt_f64(Some(rtt_f64));
 
             if i == num_entries - 1 {
-                entries.push((color, format!("{}ms+", rtt)));
+                if use_decimals {
+                    entries.push((color, format!("{:.1}ms+", rtt_f64)));
+                } else {
+                    entries.push((color, format!("{}ms+", rtt_f64 as u64)));
+                }
             } else {
-                let next_rtt =
-                    ((i + 1) as f64 / (num_entries - 1) as f64 * self.max_rtt as f64) as u64;
-                entries.push((color, format!("{}-{}ms", rtt, next_rtt)));
+                let next_rtt_f64 = (i + 1) as f64 / (num_entries - 1) as f64 * self.max_rtt as f64;
+                if use_decimals {
+                    entries.push((color, format!("{:.1} - {:.1}ms", rtt_f64, next_rtt_f64)));
+                } else {
+                    entries.push((
+                        color,
+                        format!("{} - {}ms", rtt_f64 as u64, next_rtt_f64 as u64),
+                    ));
+                }
             }
         }
 
@@ -258,6 +257,34 @@ impl ColorScale {
         entries.push((Color::Indexed(240), "Timeout".to_string()));
 
         entries
+    }
+
+    /// Get the RTT range for a legend entry at a given index
+    /// Returns (min_rtt, max_rtt, is_timeout)
+    /// The last entry (index = num_entries) is the timeout entry
+    pub fn legend_entry_range(&self, entry_idx: usize) -> Option<(f64, f64, bool)> {
+        let num_entries = 11; // Same as in legend_entries
+
+        if entry_idx > num_entries {
+            return None;
+        }
+
+        // Last entry is timeout
+        if entry_idx == num_entries {
+            return Some((0.0, 0.0, true));
+        }
+
+        let ratio = entry_idx as f64 / (num_entries - 1) as f64;
+        let min_rtt = ratio * self.max_rtt as f64;
+
+        // Last regular entry represents "max+", so upper bound is infinity
+        if entry_idx == num_entries - 1 {
+            Some((min_rtt, f64::INFINITY, false))
+        } else {
+            let next_ratio = (entry_idx + 1) as f64 / (num_entries - 1) as f64;
+            let max_rtt = next_ratio * self.max_rtt as f64;
+            Some((min_rtt, max_rtt, false))
+        }
     }
 }
 
@@ -270,11 +297,11 @@ mod tests {
         let scale = ColorScale::new(200, ColorScheme::Classic);
 
         // Test that we get RGB colors
-        let color = scale.color_for_rtt(Some(100));
+        let color = scale.color_for_rtt_f64(Some(100.0));
         assert!(matches!(color, Color::Rgb(_, _, _)));
 
         // Timeout should still be indexed
-        assert!(matches!(scale.color_for_rtt(None), Color::Indexed(240)));
+        assert!(matches!(scale.color_for_rtt_f64(None), Color::Indexed(240)));
     }
 
     #[test]
@@ -304,7 +331,7 @@ mod tests {
             ColorScheme::Thermal,
         ] {
             let scale = ColorScale::new(100, scheme);
-            let _ = scale.color_for_rtt(Some(50));
+            let _ = scale.color_for_rtt_f64(Some(50.0));
             let _ = scale.legend_entries();
         }
     }
