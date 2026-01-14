@@ -2,8 +2,12 @@
 
 A visual ping graph CLI tool with 256-color terminal support, built in Rust.
 
+⚠️ Note on AI usage: Claude Opus 4.5 was used during development of this project.
+
 ![Demo](https://img.shields.io/badge/status-alpha-yellow)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+
+<img width="1603" height="791" alt="image" src="https://github.com/user-attachments/assets/2d3ca6a7-a674-4307-b5d1-8754703399e8" />
 
 ## Features
 
