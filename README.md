@@ -1,4 +1,4 @@
-# pinggraph
+# pinggraph-rs
 
 A visual ping graph CLI tool with 256-color terminal support, built in Rust.
 
@@ -72,19 +72,6 @@ pinggraph -c ocean cloudflare.com
 | `Home` / `End` | Jump to start/end |
 | `s` | Open settings menu |
 | `Mouse click` | Show ping details tooltip |
-
-## Color Schemes
-
-- **classic** — Green/yellow/red gradient
-- **dark** — Cyan/blue/magenta (default)
-- **ocean** — Aqua to deep blue
-- **fire** — Yellow/orange/red
-- **neon** — Bright pink/purple
-- **grayscale** — White to dark gray
-- **matrix** — Green terminal aesthetic
-- **plasma** — Purple/pink/orange
-- **ice** — White/cyan/blue
-- **thermal** — Heat map colors
 
 ## Requirements
 
