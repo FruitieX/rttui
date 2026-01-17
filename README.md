@@ -4,7 +4,8 @@ A visual ping graph CLI tool with 256-color terminal support, built in Rust.
 
 ⚠️ Note on AI usage: Claude Opus 4.5 was used during development of this project.
 
-![Demo](https://img.shields.io/badge/status-alpha-yellow)
+Largely inspired by the excellent https://pinggraph.io/ tool.
+
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 <img width="1603" height="791" alt="image" src="https://github.com/user-attachments/assets/2d3ca6a7-a674-4307-b5d1-8754703399e8" />
@@ -37,10 +38,10 @@ Download from [GitHub Releases](https://github.com/yourusername/pinggraph-rs/rel
 ## Usage
 
 ```bash
-# Basic usage (ICMP requires root/admin)
+# Basic usage (ICMP requires setcap cap_net_admin,cap_net_raw capabilities or root/admin privileges)
 pinggraph google.com
 
-# UDP mode (no privileges needed)
+# UDP mode (no special privileges needed)
 pinggraph -u 1.1.1.1 -p 53
 
 # Custom interval and scale
@@ -87,7 +88,7 @@ pinggraph -c ocean cloudflare.com
 
 ## Requirements
 
-- **ICMP mode**: Requires administrator/root privileges
+- **ICMP mode**: Requires setcap cap_net_admin,cap_net_raw capabilities or administrator/root privileges
 - **UDP mode**: No special privileges needed
 - Terminal with 256-color support recommended
 
