@@ -21,8 +21,11 @@ pub enum SettingsField {
     Target,
     Interval,
     Scale,
+    AutoScale,
     ColorScheme,
-    HideCursor,
+    ShowCursor,
+    Sparkline,
+    DeferRow,
     BufferSize,
     Confirm,
     Cancel,
@@ -37,14 +40,28 @@ pub enum HeaderEditField {
     Colors,
 }
 
+/// Focus state within an inline edit popup
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum InlineEditFocus {
+    /// The text/value input field
+    Input,
+    /// The auto-scale checkbox (only for Scale popup)
+    AutoToggle,
+    /// The confirm button
+    Confirm,
+}
+
 impl SettingsField {
     pub fn next(self) -> Self {
         match self {
             SettingsField::Target => SettingsField::Interval,
             SettingsField::Interval => SettingsField::Scale,
-            SettingsField::Scale => SettingsField::ColorScheme,
-            SettingsField::ColorScheme => SettingsField::HideCursor,
-            SettingsField::HideCursor => SettingsField::BufferSize,
+            SettingsField::Scale => SettingsField::AutoScale,
+            SettingsField::AutoScale => SettingsField::ColorScheme,
+            SettingsField::ColorScheme => SettingsField::ShowCursor,
+            SettingsField::ShowCursor => SettingsField::Sparkline,
+            SettingsField::Sparkline => SettingsField::DeferRow,
+            SettingsField::DeferRow => SettingsField::BufferSize,
             SettingsField::BufferSize => SettingsField::Confirm,
             SettingsField::Confirm => SettingsField::Cancel,
             SettingsField::Cancel => SettingsField::Target,
@@ -56,9 +73,12 @@ impl SettingsField {
             SettingsField::Target => SettingsField::Cancel,
             SettingsField::Interval => SettingsField::Target,
             SettingsField::Scale => SettingsField::Interval,
-            SettingsField::ColorScheme => SettingsField::Scale,
-            SettingsField::HideCursor => SettingsField::ColorScheme,
-            SettingsField::BufferSize => SettingsField::HideCursor,
+            SettingsField::AutoScale => SettingsField::Scale,
+            SettingsField::ColorScheme => SettingsField::AutoScale,
+            SettingsField::ShowCursor => SettingsField::ColorScheme,
+            SettingsField::Sparkline => SettingsField::ShowCursor,
+            SettingsField::DeferRow => SettingsField::Sparkline,
+            SettingsField::BufferSize => SettingsField::DeferRow,
             SettingsField::Confirm => SettingsField::BufferSize,
             SettingsField::Cancel => SettingsField::Confirm,
         }
@@ -95,6 +115,8 @@ pub struct App {
     pub should_quit: bool,
     /// Recent RTT values for footer sparkline (ms as f64, None = timeout)
     pub recent_rtts: VecDeque<Option<f64>>,
+    /// Whether auto-scale mode is enabled (scale adjusts to visible data)
+    pub auto_scale: bool,
     /// Whether to defer rendering of incomplete rows
     pub defer_row: bool,
     /// Whether the display is paused (not recording new pings)
@@ -134,10 +156,22 @@ pub struct App {
     pub settings_original_scale: u64,
     /// Original color scheme when settings was opened (for cancel)
     pub settings_original_colors: ColorScheme,
-    /// Original hide cursor when settings was opened (for cancel)
-    pub settings_original_hide_cursor: bool,
-    /// Temporary hide cursor value being edited
-    pub settings_hide_cursor: bool,
+    /// Original show cursor when settings was opened (for cancel)
+    pub settings_original_show_cursor: bool,
+    /// Temporary show cursor value being edited
+    pub settings_show_cursor: bool,
+    /// Temporary auto_scale value being edited
+    pub settings_auto_scale: bool,
+    /// Original auto_scale when settings was opened (for cancel)
+    pub settings_original_auto_scale: bool,
+    /// Temporary sparkline value being edited
+    pub settings_sparkline: bool,
+    /// Original sparkline when settings was opened (for cancel)
+    pub settings_original_sparkline: bool,
+    /// Temporary defer_row value being edited
+    pub settings_defer_row: bool,
+    /// Original defer_row when settings was opened (for cancel)
+    pub settings_original_defer_row: bool,
     /// Temporary buffer size being edited (in MB)
     pub settings_buffer_mb: u64,
     /// Whether pinger needs to be restarted (target or interval changed)
@@ -162,8 +196,14 @@ pub struct App {
     pub inline_edit_input_active: bool,
     /// Inline edit confirm button area (x, y, width)
     pub inline_edit_confirm_area: Option<(u16, u16, u16)>,
-    /// Whether confirm button is focused in inline edit (false = input focused)
-    pub inline_edit_confirm_focused: bool,
+    /// Inline edit auto-toggle area (x, y, width) - only for Scale popup
+    pub inline_edit_auto_area: Option<(u16, u16, u16)>,
+    /// Which element is focused in inline edit popup
+    pub inline_edit_focus: InlineEditFocus,
+    /// Current auto_scale value within the inline scale edit
+    pub inline_edit_auto_scale: bool,
+    /// Original auto_scale value when inline edit opened (for cancel)
+    pub inline_edit_original_auto_scale: bool,
     /// Currently selected header field for tab navigation (None = no selection)
     pub header_selected: Option<HeaderEditField>,
     /// Whether quit confirmation dialog is shown
@@ -185,18 +225,21 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config) -> Self {
-        let color_scale = ColorScale::new(config.scale, config.colors);
+        let auto_scale = config.scale.is_none();
+        let scale_val = config.scale.unwrap_or(200);
+        let color_scale = ColorScale::new(scale_val, config.colors);
         let settings_interval = config.interval;
-        let settings_scale = config.scale;
+        let settings_scale = scale_val;
         let settings_colors = config.colors;
         let settings_target = config.host.clone().unwrap_or_default();
-        let settings_hide_cursor = config.hide_cursor;
+        let settings_show_cursor = config.show_cursor;
         let settings_buffer_mb = config.buffer_mb;
         let defer_row = config.defer_row;
         let max_history = config.max_history();
         Self {
             max_history,
             result_base_seq: 0,
+            auto_scale,
             config,
             color_scale,
             stats: PingStats::new(),
@@ -222,8 +265,14 @@ impl App {
             settings_input_selected: false,
             settings_original_scale: settings_scale,
             settings_original_colors: settings_colors,
-            settings_original_hide_cursor: settings_hide_cursor,
-            settings_hide_cursor,
+            settings_original_show_cursor: settings_show_cursor,
+            settings_show_cursor,
+            settings_auto_scale: auto_scale,
+            settings_original_auto_scale: auto_scale,
+            settings_sparkline: false,
+            settings_original_sparkline: false,
+            settings_defer_row: defer_row,
+            settings_original_defer_row: defer_row,
             settings_buffer_mb,
             needs_pinger_restart: false,
             new_target: None,
@@ -236,7 +285,10 @@ impl App {
             inline_edit_original: String::new(),
             inline_edit_input_active: false,
             inline_edit_confirm_area: None,
-            inline_edit_confirm_focused: false,
+            inline_edit_auto_area: None,
+            inline_edit_focus: InlineEditFocus::Input,
+            inline_edit_auto_scale: auto_scale,
+            inline_edit_original_auto_scale: auto_scale,
             header_selected: None,
             quit_confirm: false,
             quit_confirm_no_focused: false,
@@ -282,6 +334,46 @@ impl App {
         self.popup = None;
     }
 
+    /// Compute the maximum RTT (ms) among visible data points on the graph.
+    /// Returns a suitable scale value with headroom, or a default if no data.
+    pub fn compute_visible_max_rtt(&self, width: usize, height: usize) -> u64 {
+        if self.results.is_empty() || width == 0 || height == 0 {
+            return self.color_scale.max_rtt;
+        }
+
+        let total_results = self.result_base_seq + self.results.len();
+        let total_rows = total_results.div_ceil(width);
+        let view_end = self.view_end_row.unwrap_or(total_rows).min(total_rows);
+        let visible_rows = view_end.min(height);
+        let view_start_row = view_end.saturating_sub(visible_rows);
+
+        let start_seq = view_start_row * width;
+        let end_seq = (view_end * width).min(total_results);
+
+        let mut max_rtt_ms = 0.0f64;
+        let mut found_any = false;
+        for seq_idx in start_seq..end_seq {
+            if seq_idx < self.result_base_seq {
+                continue;
+            }
+            let vec_idx = seq_idx - self.result_base_seq;
+            if vec_idx < self.results.len()
+                && let Some(rtt) = self.results[vec_idx].rtt_ms_f64()
+            {
+                max_rtt_ms = max_rtt_ms.max(rtt);
+                found_any = true;
+            }
+        }
+
+        if !found_any {
+            return self.color_scale.max_rtt;
+        }
+
+        // Add 20% headroom and round up
+        let with_headroom = (max_rtt_ms * 1.2).ceil() as u64;
+        with_headroom.max(1)
+    }
+
     /// Calculate current total rows of data (using stable sequence numbers)
     pub fn total_rows(&self, width: usize) -> usize {
         if width == 0 || self.results.is_empty() {
@@ -290,6 +382,54 @@ impl App {
         // Use base_seq + results.len() for stable row calculation
         let total_results = self.result_base_seq + self.results.len();
         total_results.div_ceil(width)
+    }
+
+    /// Compute min/avg/max RTT stats for the data points currently visible on the graph.
+    /// Returns (min, avg, max) as formatted strings in ms, or "-" if no data.
+    pub fn compute_visible_stats(&self, width: usize, height: usize) -> (String, String, String) {
+        let no_data = ("-".to_string(), "-".to_string(), "-".to_string());
+        if self.results.is_empty() || width == 0 || height == 0 {
+            return no_data;
+        }
+
+        let total_results = self.result_base_seq + self.results.len();
+        let total_rows = total_results.div_ceil(width);
+        let view_end = self.view_end_row.unwrap_or(total_rows).min(total_rows);
+        let visible_rows = view_end.min(height);
+        let view_start_row = view_end.saturating_sub(visible_rows);
+
+        let start_seq = view_start_row * width;
+        let end_seq = (view_end * width).min(total_results);
+
+        let mut min_rtt = f64::INFINITY;
+        let mut max_rtt = 0.0f64;
+        let mut sum = 0.0f64;
+        let mut count = 0usize;
+
+        for seq_idx in start_seq..end_seq {
+            if seq_idx < self.result_base_seq {
+                continue;
+            }
+            let vec_idx = seq_idx - self.result_base_seq;
+            if vec_idx < self.results.len()
+                && let Some(rtt) = self.results[vec_idx].rtt_ms_f64()
+            {
+                min_rtt = min_rtt.min(rtt);
+                max_rtt = max_rtt.max(rtt);
+                sum += rtt;
+                count += 1;
+            }
+        }
+
+        if count == 0 {
+            return no_data;
+        }
+
+        (
+            format!("{:.2}", min_rtt),
+            format!("{:.2}", sum / count as f64),
+            format!("{:.2}", max_rtt),
+        )
     }
 
     /// Get the current view end row (for display purposes)
@@ -380,7 +520,7 @@ impl App {
         self.settings_interval = self.config.interval;
         self.settings_scale = self.color_scale.max_rtt;
         self.settings_colors = self.color_scale.scheme;
-        self.settings_hide_cursor = self.config.hide_cursor;
+        self.settings_show_cursor = self.config.show_cursor;
         self.settings_input_buffer.clear();
         self.settings_input_cursor = 0;
         self.settings_input_active = false;
@@ -388,7 +528,13 @@ impl App {
         // Store originals for cancel
         self.settings_original_scale = self.color_scale.max_rtt;
         self.settings_original_colors = self.color_scale.scheme;
-        self.settings_original_hide_cursor = self.config.hide_cursor;
+        self.settings_original_show_cursor = self.config.show_cursor;
+        self.settings_original_auto_scale = self.auto_scale;
+        self.settings_original_sparkline = self.config.sparkline;
+        self.settings_original_defer_row = self.defer_row;
+        self.settings_auto_scale = self.auto_scale;
+        self.settings_sparkline = self.config.sparkline;
+        self.settings_defer_row = self.defer_row;
     }
 
     /// Toggle settings menu
@@ -405,7 +551,11 @@ impl App {
         // Restore original values
         self.color_scale =
             ColorScale::new(self.settings_original_scale, self.settings_original_colors);
-        self.config.hide_cursor = self.settings_original_hide_cursor;
+        self.config.show_cursor = self.settings_original_show_cursor;
+        self.auto_scale = self.settings_original_auto_scale;
+        self.config.sparkline = self.settings_original_sparkline;
+        self.defer_row = self.settings_original_defer_row;
+        self.config.defer_row = self.settings_original_defer_row;
         self.settings_open = false;
         self.settings_input_active = false;
     }
@@ -427,11 +577,22 @@ impl App {
         // Apply interval
         self.config.interval = self.settings_interval;
         // Apply scale and colors
-        self.config.scale = self.settings_scale;
+        self.config.scale = if self.auto_scale {
+            None
+        } else {
+            Some(self.settings_scale)
+        };
         self.config.colors = self.settings_colors;
         self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
-        // Apply hide cursor
-        self.config.hide_cursor = self.settings_hide_cursor;
+        // Apply show cursor
+        self.config.show_cursor = self.settings_show_cursor;
+        // Apply auto scale
+        self.auto_scale = self.settings_auto_scale;
+        // Apply sparkline
+        self.config.sparkline = self.settings_sparkline;
+        // Apply defer row
+        self.defer_row = self.settings_defer_row;
+        self.config.defer_row = self.settings_defer_row;
         // Apply buffer size
         self.config.buffer_mb = self.settings_buffer_mb;
         self.max_history = self.config.max_history();
@@ -470,15 +631,28 @@ impl App {
                 // Apply immediately
                 self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
             }
+            SettingsField::AutoScale => {
+                self.settings_auto_scale = !self.settings_auto_scale;
+                self.auto_scale = self.settings_auto_scale;
+            }
             SettingsField::ColorScheme => {
                 self.settings_colors = self.settings_colors.next();
                 // Apply immediately
                 self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
             }
-            SettingsField::HideCursor => {
-                self.settings_hide_cursor = !self.settings_hide_cursor;
+            SettingsField::ShowCursor => {
+                self.settings_show_cursor = !self.settings_show_cursor;
                 // Apply immediately for live preview
-                self.config.hide_cursor = self.settings_hide_cursor;
+                self.config.show_cursor = self.settings_show_cursor;
+            }
+            SettingsField::Sparkline => {
+                self.settings_sparkline = !self.settings_sparkline;
+                self.config.sparkline = self.settings_sparkline;
+            }
+            SettingsField::DeferRow => {
+                self.settings_defer_row = !self.settings_defer_row;
+                self.defer_row = self.settings_defer_row;
+                self.config.defer_row = self.settings_defer_row;
             }
             SettingsField::BufferSize => {
                 self.settings_buffer_mb = self.settings_buffer_mb.saturating_add(1).min(1000);
@@ -498,15 +672,28 @@ impl App {
                 // Apply immediately
                 self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
             }
+            SettingsField::AutoScale => {
+                self.settings_auto_scale = !self.settings_auto_scale;
+                self.auto_scale = self.settings_auto_scale;
+            }
             SettingsField::ColorScheme => {
                 self.settings_colors = self.settings_colors.prev();
                 // Apply immediately
                 self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
             }
-            SettingsField::HideCursor => {
-                self.settings_hide_cursor = !self.settings_hide_cursor;
+            SettingsField::ShowCursor => {
+                self.settings_show_cursor = !self.settings_show_cursor;
                 // Apply immediately for live preview
-                self.config.hide_cursor = self.settings_hide_cursor;
+                self.config.show_cursor = self.settings_show_cursor;
+            }
+            SettingsField::Sparkline => {
+                self.settings_sparkline = !self.settings_sparkline;
+                self.config.sparkline = self.settings_sparkline;
+            }
+            SettingsField::DeferRow => {
+                self.settings_defer_row = !self.settings_defer_row;
+                self.defer_row = self.settings_defer_row;
+                self.config.defer_row = self.settings_defer_row;
             }
             SettingsField::BufferSize => {
                 self.settings_buffer_mb = self.settings_buffer_mb.saturating_sub(1).max(1);
@@ -525,7 +712,10 @@ impl App {
                 SettingsField::Scale => self.settings_scale.to_string(),
                 SettingsField::BufferSize => self.settings_buffer_mb.to_string(),
                 SettingsField::ColorScheme
-                | SettingsField::HideCursor
+                | SettingsField::ShowCursor
+                | SettingsField::AutoScale
+                | SettingsField::Sparkline
+                | SettingsField::DeferRow
                 | SettingsField::Confirm
                 | SettingsField::Cancel => String::new(),
             };
@@ -573,7 +763,10 @@ impl App {
                     }
                 }
                 SettingsField::ColorScheme
-                | SettingsField::HideCursor
+                | SettingsField::ShowCursor
+                | SettingsField::AutoScale
+                | SettingsField::Sparkline
+                | SettingsField::DeferRow
                 | SettingsField::Confirm
                 | SettingsField::Cancel => {}
             }
@@ -610,7 +803,10 @@ impl App {
                         self.settings_input_buffer.parse().unwrap_or(1).max(1);
                 }
                 SettingsField::ColorScheme
-                | SettingsField::HideCursor
+                | SettingsField::ShowCursor
+                | SettingsField::AutoScale
+                | SettingsField::Sparkline
+                | SettingsField::DeferRow
                 | SettingsField::Confirm
                 | SettingsField::Cancel => {}
             }
@@ -654,7 +850,7 @@ impl App {
     ) -> bool {
         // Calculate settings menu position (same as in SettingsMenu render)
         let menu_width = 65u16.min(area_width.saturating_sub(4));
-        let menu_height = 19u16.min(area_height.saturating_sub(4));
+        let menu_height = 25u16.min(area_height.saturating_sub(4));
         let menu_x = (area_width.saturating_sub(menu_width)) / 2;
         let menu_y = (area_height.saturating_sub(menu_height)) / 2;
 
@@ -679,33 +875,31 @@ impl App {
         // Line 4: empty
         // Line 5: Scale
         // Line 6: empty
-        // Line 7: ColorScheme
+        // Line 7: AutoScale
         // Line 8: empty
-        // Line 9: HideCursor
-        // Menu lines (relative y):
-        // Line 0: empty
-        // Line 1: Target
-        // Line 2: empty
-        // Line 3: Interval
-        // Line 4: empty
-        // Line 5: Scale
-        // Line 6: empty
-        // Line 7: ColorScheme
-        // Line 8: empty
-        // Line 9: HideCursor
+        // Line 9: ColorScheme
         // Line 10: empty
-        // Line 11: BufferSize
+        // Line 11: ShowCursor
         // Line 12: empty
-        // Line 13: Buttons
+        // Line 13: Sparkline
+        // Line 14: empty
+        // Line 15: DeferRow
+        // Line 16: empty
+        // Line 17: BufferSize
+        // Line 18: empty
+        // Line 19: Buttons
 
         let clicked_field = match rel_y {
             1 => Some(SettingsField::Target),
             3 => Some(SettingsField::Interval),
             5 => Some(SettingsField::Scale),
-            7 => Some(SettingsField::ColorScheme),
-            9 => Some(SettingsField::HideCursor),
-            11 => Some(SettingsField::BufferSize),
-            13 => {
+            7 => Some(SettingsField::AutoScale),
+            9 => Some(SettingsField::ColorScheme),
+            11 => Some(SettingsField::ShowCursor),
+            13 => Some(SettingsField::Sparkline),
+            15 => Some(SettingsField::DeferRow),
+            17 => Some(SettingsField::BufferSize),
+            19 => {
                 // Buttons row - check x position
                 // "                    " (20 spaces) + " Confirm " (9) + "    " (4) + " Cancel " (8)
                 // Confirm: x 20-28, Cancel: x 33-40
@@ -736,7 +930,10 @@ impl App {
                     SettingsField::ColorScheme => {
                         self.settings_increase();
                     }
-                    SettingsField::HideCursor => {
+                    SettingsField::ShowCursor
+                    | SettingsField::AutoScale
+                    | SettingsField::Sparkline
+                    | SettingsField::DeferRow => {
                         self.settings_increase();
                     }
                     SettingsField::Confirm => {
@@ -751,6 +948,10 @@ impl App {
                 // Select the field
                 self.settings_input_active = false;
                 self.settings_field = field;
+                // Auto-start input for text fields on first click
+                if field.is_text_input() {
+                    self.settings_start_input();
+                }
             }
         }
 
@@ -761,10 +962,6 @@ impl App {
     pub fn start_inline_edit(&mut self, field: HeaderEditField, x: u16, y: u16) {
         self.inline_edit = Some(field);
         self.inline_edit_pos = (x, y);
-        // Start in navigation mode (not text input mode) - like settings menu
-        self.inline_edit_input_active = false;
-        // Don't select initially - just focus, no selection
-        self.inline_edit_selected = false;
         self.inline_edit_buffer = match field {
             HeaderEditField::Target => self.config.host.clone().unwrap_or_default(),
             HeaderEditField::Interval => self.config.interval.to_string(),
@@ -772,16 +969,23 @@ impl App {
             HeaderEditField::Colors => format!("{}", self.color_scale.scheme),
         };
         self.inline_edit_original = self.inline_edit_buffer.clone();
-        // For Colors, cursor position is not used
-        self.inline_edit_cursor = if field == HeaderEditField::Colors {
-            0
+        // For text fields, start with text selected and input active
+        if field != HeaderEditField::Colors {
+            self.inline_edit_input_active = true;
+            self.inline_edit_selected = true;
+            self.inline_edit_cursor = self.inline_edit_buffer.len();
         } else {
-            self.inline_edit_buffer.len()
-        };
+            self.inline_edit_input_active = false;
+            self.inline_edit_selected = false;
+            self.inline_edit_cursor = 0;
+        }
         // Clear header selection when opening inline edit
         self.header_selected = None;
-        // Start with input focused (not confirm button)
-        self.inline_edit_confirm_focused = false;
+        // Start with input focused
+        self.inline_edit_focus = InlineEditFocus::Input;
+        // Store auto_scale state for Scale popup
+        self.inline_edit_auto_scale = self.auto_scale;
+        self.inline_edit_original_auto_scale = self.auto_scale;
     }
 
     /// Activate text input mode for inline edit
@@ -790,7 +994,7 @@ impl App {
             // Don't activate input mode for Colors (it's an enum selector)
             if field != HeaderEditField::Colors {
                 self.inline_edit_input_active = true;
-                self.inline_edit_selected = false;
+                self.inline_edit_selected = true;
                 self.inline_edit_cursor = self.inline_edit_buffer.len();
             }
         }
@@ -805,6 +1009,7 @@ impl App {
                     if let Ok(val) = self.inline_edit_original.parse::<u64>() {
                         self.color_scale = ColorScale::new(val.max(1), self.color_scale.scheme);
                     }
+                    self.auto_scale = self.inline_edit_original_auto_scale;
                 }
                 HeaderEditField::Colors => {
                     // Find original color scheme by cycling through
@@ -848,8 +1053,13 @@ impl App {
                     }
                 }
                 HeaderEditField::Scale => {
-                    // Already applied via live preview
-                    self.config.scale = self.color_scale.max_rtt;
+                    // Apply the auto_scale setting from the popup
+                    self.auto_scale = self.inline_edit_auto_scale;
+                    if self.auto_scale {
+                        self.config.scale = None;
+                    } else {
+                        self.config.scale = Some(self.color_scale.max_rtt);
+                    }
                 }
                 HeaderEditField::Colors => {
                     // Already applied via live preview

@@ -16,11 +16,15 @@ pub const LEGEND_WIDTH: u16 = 16;
 /// Legend widget showing color scale
 pub struct Legend<'a> {
     color_scale: &'a ColorScale,
+    auto_scale: bool,
 }
 
 impl<'a> Legend<'a> {
-    pub fn new(color_scale: &'a ColorScale) -> Self {
-        Self { color_scale }
+    pub fn new(color_scale: &'a ColorScale, auto_scale: bool) -> Self {
+        Self {
+            color_scale,
+            auto_scale,
+        }
     }
 }
 
@@ -38,8 +42,14 @@ impl Widget for Legend<'_> {
             })
             .collect();
 
+        let title = if self.auto_scale {
+            " Legend (auto) "
+        } else {
+            " Legend "
+        };
+
         let block = Block::default()
-            .title(" Legend ")
+            .title(title)
             .title_style(Style::default().fg(Color::DarkGray))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray));

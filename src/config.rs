@@ -51,25 +51,26 @@ pub struct Config {
     pub timeout: u64,
 
     /// Color scale - RTT (ms) that is considered "bad"
-    /// The gradient scales proportionally from low to this value
-    #[arg(short = 's', long, default_value = "200")]
-    pub scale: u64,
+    /// The gradient scales proportionally from low to this value.
+    /// If not specified, auto-scale mode is used.
+    #[arg(short = 's', long)]
+    pub scale: Option<u64>,
 
     /// Color scheme for the graph
     #[arg(short = 'c', long, value_enum, default_value = "dark")]
     pub colors: ColorScheme,
 
-    /// Hide the terminal cursor while running
+    /// Show the terminal cursor while running
     #[arg(long, default_value = "false")]
-    pub hide_cursor: bool,
+    pub show_cursor: bool,
 
     /// Defer rendering of a new row until it is completely filled
     #[arg(long, default_value = "false")]
     pub defer_row: bool,
 
-    /// Disable the sparkline in the footer
+    /// Enable the sparkline in the footer
     #[arg(long, default_value = "false")]
-    pub no_sparkline: bool,
+    pub sparkline: bool,
 
     /// History buffer size in megabytes (approximate)
     #[arg(short = 'b', long, default_value = "10")]
@@ -90,7 +91,9 @@ impl Config {
             anyhow::bail!("Timeout must be greater than 0");
         }
 
-        if self.scale == 0 {
+        if let Some(scale) = self.scale
+            && scale == 0
+        {
             anyhow::bail!("Scale must be greater than 0");
         }
 

@@ -32,8 +32,8 @@ pub struct Graph<'a> {
     result_base_seq: usize,
     /// Whether the graph is paused
     paused: bool,
-    /// Whether to hide the cursor
-    hide_cursor: bool,
+    /// Whether to show the cursor
+    show_cursor: bool,
     /// Whether to defer rendering of incomplete rows
     defer_row: bool,
     /// Optional RTT range to highlight (min_rtt, max_rtt, is_timeout)
@@ -49,7 +49,7 @@ impl<'a> Graph<'a> {
         total_rows: usize,
         result_base_seq: usize,
         paused: bool,
-        hide_cursor: bool,
+        show_cursor: bool,
         defer_row: bool,
         highlight_range: Option<(f64, f64, bool)>,
     ) -> Self {
@@ -60,7 +60,7 @@ impl<'a> Graph<'a> {
             total_rows,
             result_base_seq,
             paused,
-            hide_cursor,
+            show_cursor,
             defer_row,
             highlight_range,
         }
@@ -125,7 +125,7 @@ impl Widget for Graph<'_> {
 
         if result_count == 0 {
             // Draw cursor at start position if not hidden
-            if !self.hide_cursor {
+            if self.show_cursor {
                 buf.set_string(
                     area.x,
                     area.y + area.height - 1,
@@ -227,7 +227,7 @@ impl Widget for Graph<'_> {
         }
 
         // Draw cursor at current position (unless hidden)
-        if !self.hide_cursor && is_live {
+        if self.show_cursor && is_live {
             // Calculate cursor position using stable indices
             let cursor_seq = total_results;
             let cursor_row = cursor_seq / width;

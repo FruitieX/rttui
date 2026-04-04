@@ -24,6 +24,12 @@ chrono = "0.4"
 anyhow = "1"
 thiserror = "1"
 
+# Thread priority
+thread-priority = "1"
+
+# Fast mutex (lower latency than std::sync::Mutex)
+parking_lot = "0.12"
+
 [[bin]]
 name = "rttui"
 path = "src/main.rs"

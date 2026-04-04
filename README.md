@@ -67,7 +67,7 @@ Options:
   -t, --timeout <TIMEOUT>      Ping timeout in milliseconds [default: 3000]
   -s, --scale <SCALE>          Color scale - RTT (ms) that is considered "bad" The gradient scales proportionally from low to this value [default: 200]
   -c, --colors <COLORS>        Color scheme for the graph [default: dark] [possible values: classic, dark, ocean, fire, neon, grayscale, matrix, plasma, ice, thermal]
-      --hide-cursor            Hide the terminal cursor while running
+      --show-cursor            Show the terminal cursor while running
   -b, --buffer-mb <BUFFER_MB>  History buffer size in megabytes (approximate) [default: 10]
   -h, --help                   Print help (see more with '--help')
   -V, --version                Print version
@@ -75,14 +75,14 @@ Options:
 
 ### Controls
 
-| Key | Action |
-|-----|--------|
-| `q` / `Esc` | Quit |
-| `Space` | Pause/Resume |
-| `↑` / `↓` | Scroll through history |
-| `Home` / `End` | Jump to start/end |
-| `s` | Open settings menu |
-| `Mouse click` | Show ping details tooltip |
+| Key            | Action                    |
+| -------------- | ------------------------- |
+| `q` / `Esc`    | Quit                      |
+| `Space`        | Pause/Resume              |
+| `↑` / `↓`      | Scroll through history    |
+| `Home` / `End` | Jump to start/end         |
+| `s`            | Open settings menu        |
+| `Mouse click`  | Show ping details tooltip |
 
 ## Requirements
 

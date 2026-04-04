@@ -32,6 +32,7 @@ pub struct Header<'a> {
     resolved_ip: Option<&'a str>,
     terminal_width: u16,
     selected_field: Option<HeaderEditField>,
+    scale_display: String,
 }
 
 impl<'a> Header<'a> {
@@ -40,12 +41,20 @@ impl<'a> Header<'a> {
         resolved_ip: Option<&'a str>,
         terminal_width: u16,
         selected_field: Option<HeaderEditField>,
+        auto_scale: bool,
+        effective_scale: u64,
     ) -> Self {
+        let scale_display = if auto_scale {
+            format!("auto ({}ms)", effective_scale)
+        } else {
+            format!("{}ms", effective_scale)
+        };
         Self {
             config,
             resolved_ip,
             terminal_width,
             selected_field,
+            scale_display,
         }
     }
 
@@ -69,7 +78,7 @@ impl<'a> Header<'a> {
 
         let mode_str = format!("{}", self.config.mode);
         let interval_str = format!("{}ms", self.config.interval);
-        let scale_str = format!("{}ms", self.config.scale);
+        let scale_str = &self.scale_display;
         let colors_str = format!("{}", self.config.colors);
 
         let mut regions = Vec::new();
@@ -158,7 +167,7 @@ impl Widget for Header<'_> {
 
         let mode_str = format!("{}", self.config.mode);
         let interval_str = format!("{}ms", self.config.interval);
-        let scale_str = format!("{}ms", self.config.scale);
+        let scale_str = &self.scale_display;
         let colors_str = format!("{}", self.config.colors);
 
         // Helper to apply selection highlight
@@ -197,7 +206,7 @@ impl Widget for Header<'_> {
             Span::raw(" │ "),
             Span::styled("Scale: ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                &scale_str,
+                scale_str.as_str(),
                 highlight(Style::default().fg(Color::Blue), HeaderEditField::Scale),
             ),
             Span::raw(" │ "),

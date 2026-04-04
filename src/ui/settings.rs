@@ -15,8 +15,11 @@ pub struct SettingsMenu {
     pub target: String,
     pub interval: u64,
     pub scale: u64,
+    pub auto_scale: bool,
     pub colors: ColorScheme,
-    pub hide_cursor: bool,
+    pub show_cursor: bool,
+    pub sparkline: bool,
+    pub defer_row: bool,
     pub buffer_mb: u64,
     pub input_active: bool,
     pub input_buffer: String,
@@ -31,8 +34,11 @@ impl SettingsMenu {
         target: String,
         interval: u64,
         scale: u64,
+        auto_scale: bool,
         colors: ColorScheme,
-        hide_cursor: bool,
+        show_cursor: bool,
+        sparkline: bool,
+        defer_row: bool,
         buffer_mb: u64,
         input_active: bool,
         input_buffer: String,
@@ -44,8 +50,11 @@ impl SettingsMenu {
             target,
             interval,
             scale,
+            auto_scale,
             colors,
-            hide_cursor,
+            show_cursor,
+            sparkline,
+            defer_row,
             buffer_mb,
             input_active,
             input_buffer,
@@ -59,7 +68,7 @@ impl Widget for SettingsMenu {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Calculate centered position for the settings box (wider now)
         let width = 65u16.min(area.width.saturating_sub(4));
-        let height = 19u16.min(area.height.saturating_sub(4)); // Increased height for buffer size
+        let height = 25u16.min(area.height.saturating_sub(4));
         let x = area.x + (area.width.saturating_sub(width)) / 2;
         let y = area.y + (area.height.saturating_sub(height)) / 2;
 
@@ -220,6 +229,31 @@ impl Widget for SettingsMenu {
             // Scale
             Line::from(scale_line),
             Line::from(""),
+            // Auto Scale
+            Line::from(vec![
+                Span::styled(
+                    if self.selected_field == SettingsField::AutoScale {
+                        "► "
+                    } else {
+                        "  "
+                    },
+                    if self.selected_field == SettingsField::AutoScale {
+                        selected_style
+                    } else {
+                        normal_style
+                    },
+                ),
+                Span::styled("Auto Scale:   ", label_style),
+                Span::styled(
+                    if self.auto_scale { "Yes" } else { "No" },
+                    if self.selected_field == SettingsField::AutoScale {
+                        selected_style
+                    } else {
+                        value_style
+                    },
+                ),
+            ]),
+            Line::from(""),
             // Color scheme
             Line::from(vec![
                 Span::styled(
@@ -245,24 +279,74 @@ impl Widget for SettingsMenu {
                 ),
             ]),
             Line::from(""),
-            // Hide cursor
+            // Show cursor
             Line::from(vec![
                 Span::styled(
-                    if self.selected_field == SettingsField::HideCursor {
+                    if self.selected_field == SettingsField::ShowCursor {
                         "► "
                     } else {
                         "  "
                     },
-                    if self.selected_field == SettingsField::HideCursor {
+                    if self.selected_field == SettingsField::ShowCursor {
                         selected_style
                     } else {
                         normal_style
                     },
                 ),
-                Span::styled("Hide Cursor:  ", label_style),
+                Span::styled("Show Cursor:  ", label_style),
                 Span::styled(
-                    if self.hide_cursor { "Yes" } else { "No" },
-                    if self.selected_field == SettingsField::HideCursor {
+                    if self.show_cursor { "Yes" } else { "No" },
+                    if self.selected_field == SettingsField::ShowCursor {
+                        selected_style
+                    } else {
+                        value_style
+                    },
+                ),
+            ]),
+            Line::from(""),
+            // Sparkline
+            Line::from(vec![
+                Span::styled(
+                    if self.selected_field == SettingsField::Sparkline {
+                        "► "
+                    } else {
+                        "  "
+                    },
+                    if self.selected_field == SettingsField::Sparkline {
+                        selected_style
+                    } else {
+                        normal_style
+                    },
+                ),
+                Span::styled("Sparkline:    ", label_style),
+                Span::styled(
+                    if self.sparkline { "Yes" } else { "No" },
+                    if self.selected_field == SettingsField::Sparkline {
+                        selected_style
+                    } else {
+                        value_style
+                    },
+                ),
+            ]),
+            Line::from(""),
+            // Defer Row
+            Line::from(vec![
+                Span::styled(
+                    if self.selected_field == SettingsField::DeferRow {
+                        "► "
+                    } else {
+                        "  "
+                    },
+                    if self.selected_field == SettingsField::DeferRow {
+                        selected_style
+                    } else {
+                        normal_style
+                    },
+                ),
+                Span::styled("Defer Row:    ", label_style),
+                Span::styled(
+                    if self.defer_row { "Yes" } else { "No" },
+                    if self.selected_field == SettingsField::DeferRow {
                         selected_style
                     } else {
                         value_style

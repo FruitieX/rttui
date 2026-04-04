@@ -19,7 +19,9 @@ pub struct Footer<'a> {
     recent_rtts: &'a [Option<f64>], // Recent RTT values in ms as f64 (None = timeout)
     color_scale: &'a ColorScale,
     terminal_width: u16, // Terminal width for scaling sparkline
-    no_sparkline: bool,
+    sparkline: bool,
+    /// Pre-computed visible stats (min, avg, max) as formatted strings
+    visible_stats: (String, String, String),
 }
 
 impl<'a> Footer<'a> {
@@ -28,14 +30,16 @@ impl<'a> Footer<'a> {
         recent_rtts: &'a [Option<f64>],
         color_scale: &'a ColorScale,
         terminal_width: u16,
-        no_sparkline: bool,
+        sparkline: bool,
+        visible_stats: (String, String, String),
     ) -> Self {
         Self {
             stats,
             recent_rtts,
             color_scale,
             terminal_width,
-            no_sparkline,
+            sparkline,
+            visible_stats,
         }
     }
 
@@ -99,6 +103,9 @@ impl Widget for Footer<'_> {
             .map(|d| format!("{:.2}", d.as_secs_f64() * 1000.0))
             .unwrap_or_else(|| "-".to_string());
 
+        // Use pre-computed visible stats from the graph's visible data points
+        let (recent_min, recent_avg, recent_max) = self.visible_stats.clone();
+
         let loss_color = if self.stats.loss_percent() > 5.0 {
             Color::Red
         } else if self.stats.loss_percent() > 1.0 {
@@ -118,7 +125,8 @@ impl Widget for Footer<'_> {
             self.stats.loss_percent()
         );
         let rtt_section = format!("RTT min/avg/max: {}/{}/{} ms", min, avg, max);
-        let recent_label = " │ Recent: ";
+        let recent_stats_section =
+            format!(" │ Recent: {}/{}/{} ms", recent_min, recent_avg, recent_max);
         let last_rtt_text = if let Some(last_rtt) = self.recent_rtts.last() {
             match last_rtt {
                 Some(ms) => format!(" {:.2}ms", ms),
@@ -133,13 +141,13 @@ impl Widget for Footer<'_> {
         let full_static_len = sent_rcvd_section.len()
             + loss_section.len()
             + rtt_section.len()
-            + recent_label.len()
+            + recent_stats_section.len()
             + last_rtt_text.len()
             + quit_button.len()
-            + 2; // 2 spaces before button
+            + 2;
         let no_sent_rcvd_len = loss_section.len()
             + rtt_section.len()
-            + recent_label.len()
+            + recent_stats_section.len()
             + last_rtt_text.len()
             + quit_button.len()
             + 2;
@@ -160,7 +168,7 @@ impl Widget for Footer<'_> {
 
         let show_sent_rcvd = width > no_sent_rcvd_len + 10;
         let show_recent_section = width > no_recent_len + 10;
-        let show_sparkline = !self.no_sparkline && width > full_static_len + 10;
+        let show_sparkline = self.sparkline && width > full_static_len + 10;
 
         // Build left-side spans (without sparkline first to calculate remaining space)
         let mut base_spans = Vec::new();
@@ -208,7 +216,7 @@ impl Widget for Footer<'_> {
             ),
         ]);
 
-        // Build the "Recent: " label and last RTT text spans
+        // Build the "Recent: min/avg/max" stats and last RTT text spans
         let mut recent_spans = Vec::new();
         let mut last_rtt_spans = Vec::new();
 
@@ -218,8 +226,12 @@ impl Widget for Footer<'_> {
                 "Recent: ",
                 Style::default().fg(Color::DarkGray),
             ));
+            recent_spans.push(Span::styled(
+                format!("{}/{}/{} ms", recent_min, recent_avg, recent_max),
+                Style::default().fg(Color::White),
+            ));
 
-            // Show the numeric value of the last ping
+            // Show the numeric value of the last ping after sparkline
             if let Some(last_rtt) = self.recent_rtts.last() {
                 last_rtt_spans.push(Span::raw(" "));
                 match last_rtt {
@@ -255,7 +267,7 @@ impl Widget for Footer<'_> {
         // Calculate sparkline width (fill ALL remaining space)
         let content_width = area.width as usize;
         let fixed_width = base_width + recent_width + last_rtt_width + right_section_len;
-        let sparkline_width = if show_sparkline && show_recent_section {
+        let sparkline_width = if show_recent_section {
             content_width.saturating_sub(fixed_width)
         } else {
             0
@@ -265,9 +277,13 @@ impl Widget for Footer<'_> {
         let mut spans = base_spans;
         spans.extend(recent_spans);
 
-        // Add sparkline if there's room
+        // Add sparkline if there's room, otherwise add padding to right-align the rest
         if sparkline_width > 0 {
-            spans.extend(self.sparkline(sparkline_width));
+            if show_sparkline {
+                spans.extend(self.sparkline(sparkline_width));
+            } else {
+                spans.push(Span::raw(" ".repeat(sparkline_width)));
+            }
         }
 
         spans.extend(last_rtt_spans);

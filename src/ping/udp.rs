@@ -2,8 +2,11 @@ use super::{PingResult, Pinger};
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
+use thread_priority::{ThreadPriority, set_current_thread_priority};
 
 /// Magic bytes for UDP ping packets
 const MAGIC: &[u8; 4] = b"PING";
@@ -87,16 +90,19 @@ impl Pinger for UdpClientPinger {
         let _ = socket_recv.set_read_timeout(Some(Duration::from_millis(100)));
 
         std::thread::spawn(move || {
+            if let Err(e) = set_current_thread_priority(ThreadPriority::Max) {
+                eprintln!("Warning: failed to set receiver thread priority: {:?}", e);
+            }
             let mut buf = [0u8; 32];
             while !stop_recv.load(Ordering::Relaxed) {
                 match socket_recv.recv(&mut buf) {
                     Ok(len) => {
                         if let Some((seq, _timestamp)) = decode_packet(&buf[..len]) {
-                            let mut pending = pending_recv.lock().unwrap();
+                            let mut pending = pending_recv.lock();
                             if let Some(sent_at) = pending.remove(&seq) {
                                 let rtt = sent_at.elapsed();
                                 let prev = {
-                                    let mut guard = prev_rtt_recv.lock().unwrap();
+                                    let mut guard = prev_rtt_recv.lock();
                                     let prev = *guard;
                                     *guard = Some(rtt);
                                     prev
@@ -133,7 +139,7 @@ impl Pinger for UdpClientPinger {
             while !stop_timeout.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_millis(100));
                 let now = Instant::now();
-                let mut pending = pending_timeout.lock().unwrap();
+                let mut pending = pending_timeout.lock();
                 let timed_out: Vec<(u64, Instant)> = pending
                     .iter()
                     .filter(|(_, sent_at)| now.duration_since(**sent_at) > timeout_duration)
@@ -142,7 +148,7 @@ impl Pinger for UdpClientPinger {
 
                 for (seq, sent_at) in timed_out {
                     pending.remove(&seq);
-                    *prev_rtt_timeout.lock().unwrap() = None;
+                    *prev_rtt_timeout.lock() = None;
                     let _ = tx_timeout.send(PingResult::timeout(seq, sent_at));
                 }
             }
@@ -171,7 +177,7 @@ impl Pinger for UdpClientPinger {
             let packet = encode_packet(seq, timestamp_us);
 
             {
-                let mut pending = pending.lock().unwrap();
+                let mut pending = pending.lock();
                 pending.insert(seq, sent_at);
             }
 

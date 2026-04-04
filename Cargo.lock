@@ -746,9 +746,11 @@ dependencies = [
  "clap",
  "crossterm",
  "ctrlc",
+ "parking_lot",
  "ping-rs",
  "ratatui",
  "thiserror",
+ "thread-priority",
 ]
 
 [[package]]
@@ -904,6 +906,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "thread-priority"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe075d7053dae61ac5413a34ea7d4913b6e6207844fd726bdd858b37ff72bf5"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
+ "log",
+ "rustversion",
+ "winapi",
 ]
 
 [[package]]
