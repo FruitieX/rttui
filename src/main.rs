@@ -324,7 +324,10 @@ fn run_app(
                 };
 
                 // Update auto scale based on visible data
-                if app.auto_scale && app.inline_edit != Some(HeaderEditField::Scale) {
+                if app.auto_scale
+                    && !(app.inline_edit == Some(HeaderEditField::Scale)
+                        && !app.inline_edit_auto_scale)
+                {
                     let graph_height = main_chunks[1].height as usize;
                     let auto_scale_val = app.compute_visible_max_rtt(graph_width, graph_height);
                     app.color_scale = ColorScale::new(auto_scale_val, app.color_scale.scheme);
@@ -497,6 +500,8 @@ fn run_app(
                         app.settings_target.clone(),
                         app.settings_interval,
                         app.settings_scale,
+                        app.settings_scale_min,
+                        app.settings_scale_max,
                         app.settings_auto_scale,
                         app.settings_colors,
                         app.settings_show_cursor,
@@ -518,14 +523,33 @@ fn run_app(
                     let title = match field {
                         HeaderEditField::Target => " Target ",
                         HeaderEditField::Interval => " Interval (ms) ",
-                        HeaderEditField::Scale => " Scale (ms) ",
+                        HeaderEditField::Scale => {
+                            if app.inline_edit_auto_scale {
+                                " Auto Scale (ms) "
+                            } else {
+                                " Scale (ms) "
+                            }
+                        }
                         HeaderEditField::Colors => " Color Scheme ",
                     };
 
-                    // Scale popup has an extra "Auto" toggle row
                     let has_auto_toggle = field == HeaderEditField::Scale;
-                    let popup_width = 30u16.max(app.inline_edit_buffer.len() as u16 + 6);
-                    let popup_height = if has_auto_toggle { 5u16 } else { 4u16 };
+                    let has_secondary_input =
+                        field == HeaderEditField::Scale && app.inline_edit_has_secondary_input();
+                    let popup_width = 34u16.max(
+                        app.inline_edit_buffer
+                            .len()
+                            .max(app.inline_edit_secondary_buffer.len())
+                            as u16
+                            + 12,
+                    );
+                    let popup_height = if has_secondary_input {
+                        6u16
+                    } else if has_auto_toggle {
+                        5u16
+                    } else {
+                        4u16
+                    };
 
                     // Position below the clicked item
                     let px = popup_x
@@ -557,11 +581,65 @@ fn run_app(
                         .bg(Color::Rgb(100, 200, 100));
 
                     let input_focused = app.inline_edit_focus == InlineEditFocus::Input;
+                    let secondary_input_focused =
+                        app.inline_edit_focus == InlineEditFocus::SecondaryInput;
+
+                    let render_input_line =
+                        |label: &str,
+                         buffer: &str,
+                         cursor: usize,
+                         selected: bool,
+                         focused: bool,
+                         input_active: bool| {
+                            let mut spans = Vec::new();
+                            if !label.is_empty() {
+                                spans.push(Span::styled(
+                                    format!("{label}: "),
+                                    Style::default().fg(Color::DarkGray),
+                                ));
+                            }
+
+                            if selected && focused {
+                                spans.push(Span::styled(buffer.to_string(), selected_text_style));
+                            } else if input_active && focused {
+                                let before: String = buffer.chars().take(cursor).collect();
+                                let after: String = buffer.chars().skip(cursor).collect();
+                                spans.push(Span::styled(before, input_style));
+                                spans.push(Span::styled("▏", Style::default().fg(Color::White)));
+                                spans.push(Span::styled(after, input_style));
+                            } else {
+                                spans.push(Span::styled(
+                                    buffer.to_string(),
+                                    if focused { selected_style } else { value_style },
+                                ));
+                            }
+
+                            Line::from(spans)
+                        };
+
+                    let mut lines = Vec::new();
+
+                    if has_auto_toggle {
+                        let auto_focused = app.inline_edit_focus == InlineEditFocus::AutoToggle;
+                        let checkbox = if app.inline_edit_auto_scale {
+                            "[✓] Auto"
+                        } else {
+                            "[ ] Auto"
+                        };
+                        lines.push(Line::from(vec![Span::styled(
+                            checkbox,
+                            if auto_focused {
+                                selected_style
+                            } else {
+                                value_style
+                            },
+                        )]));
+                    }
 
                     // Render content based on field type
-                    let input_line = if field == HeaderEditField::Colors {
+                    if field == HeaderEditField::Colors {
                         // Colors is an enum selector - show with arrows
-                        Line::from(vec![
+                        lines.push(Line::from(vec![
                             Span::styled(
                                 "◄ ",
                                 if input_focused {
@@ -586,60 +664,37 @@ fn run_app(
                                     Style::default().fg(Color::DarkGray)
                                 },
                             ),
-                        ])
-                    } else if app.inline_edit_selected && input_focused {
-                        // Selected text (select-all state)
-                        Line::from(vec![Span::styled(
-                            app.inline_edit_buffer.clone(),
-                            selected_text_style,
-                        )])
-                    } else if app.inline_edit_input_active && input_focused {
-                        // Text input mode - show cursor
-                        let before: String = app
-                            .inline_edit_buffer
-                            .chars()
-                            .take(app.inline_edit_cursor)
-                            .collect();
-                        let after: String = app
-                            .inline_edit_buffer
-                            .chars()
-                            .skip(app.inline_edit_cursor)
-                            .collect();
-                        Line::from(vec![
-                            Span::styled(before, input_style),
-                            Span::styled("▏", Style::default().fg(Color::White)),
-                            Span::styled(after, input_style),
-                        ])
+                        ]));
+                    } else if field == HeaderEditField::Scale && has_secondary_input {
+                        lines.push(render_input_line(
+                            "Min",
+                            &app.inline_edit_buffer,
+                            app.inline_edit_cursor,
+                            app.inline_edit_selected,
+                            input_focused,
+                            app.inline_edit_input_active,
+                        ));
+                        lines.push(render_input_line(
+                            "Max",
+                            &app.inline_edit_secondary_buffer,
+                            app.inline_edit_secondary_cursor,
+                            app.inline_edit_secondary_selected,
+                            secondary_input_focused,
+                            app.inline_edit_input_active,
+                        ));
                     } else {
-                        // Navigation mode or unfocused - show value with appropriate style
-                        Line::from(vec![Span::styled(
-                            app.inline_edit_buffer.clone(),
-                            if input_focused {
-                                selected_style
+                        lines.push(render_input_line(
+                            if field == HeaderEditField::Scale {
+                                "Scale"
                             } else {
-                                value_style
+                                ""
                             },
-                        )])
-                    };
-
-                    let mut lines = vec![input_line];
-
-                    // Auto-scale toggle (only for Scale popup)
-                    if has_auto_toggle {
-                        let auto_focused = app.inline_edit_focus == InlineEditFocus::AutoToggle;
-                        let checkbox = if app.inline_edit_auto_scale {
-                            "[✓] Auto"
-                        } else {
-                            "[ ] Auto"
-                        };
-                        lines.push(Line::from(vec![Span::styled(
-                            checkbox,
-                            if auto_focused {
-                                selected_style
-                            } else {
-                                value_style
-                            },
-                        )]));
+                            &app.inline_edit_buffer,
+                            app.inline_edit_cursor,
+                            app.inline_edit_selected,
+                            input_focused,
+                            app.inline_edit_input_active,
+                        ));
                     }
 
                     // Confirm button line
@@ -659,7 +714,13 @@ fn run_app(
                     frame.render_widget(para, inner);
 
                     // Store areas for click detection
-                    let confirm_row_offset = if has_auto_toggle { 3 } else { 2 };
+                    let confirm_row_offset = if has_secondary_input {
+                        4
+                    } else if has_auto_toggle {
+                        3
+                    } else {
+                        2
+                    };
                     app.inline_edit_confirm_area = Some((
                         px + 1,                  // after border
                         py + confirm_row_offset, // line inside popup
@@ -668,7 +729,7 @@ fn run_app(
                     if has_auto_toggle {
                         app.inline_edit_auto_area = Some((
                             px + 1, // after border
-                            py + 2, // second line inside popup
+                            py + 1, // first line inside popup
                             8,      // "[✓] Auto" width
                         ));
                     } else {
@@ -782,6 +843,8 @@ fn run_app(
                     // Handle inline edit input
                     else if let Some(edit_field) = app.inline_edit {
                         let has_auto_toggle = edit_field == HeaderEditField::Scale;
+                        let has_secondary_input = edit_field == HeaderEditField::Scale
+                            && app.inline_edit_has_secondary_input();
                         match app.inline_edit_focus {
                             InlineEditFocus::Confirm => match key.code {
                                 KeyCode::Esc => {
@@ -790,12 +853,15 @@ fn run_app(
                                 KeyCode::Enter => {
                                     app.apply_inline_edit();
                                 }
-                                KeyCode::Up | KeyCode::Tab => {
-                                    app.inline_edit_focus = if has_auto_toggle {
-                                        InlineEditFocus::AutoToggle
+                                KeyCode::Up => {
+                                    app.inline_edit_focus = if has_secondary_input {
+                                        InlineEditFocus::SecondaryInput
                                     } else {
                                         InlineEditFocus::Input
                                     };
+                                }
+                                KeyCode::Tab => {
+                                    app.inline_edit_focus = InlineEditFocus::Input;
                                 }
                                 _ => {}
                             },
@@ -804,20 +870,78 @@ fn run_app(
                                     app.cancel_inline_edit();
                                 }
                                 KeyCode::Enter | KeyCode::Char(' ') => {
-                                    app.inline_edit_auto_scale = !app.inline_edit_auto_scale;
-                                    app.auto_scale = app.inline_edit_auto_scale;
+                                    app.inline_edit_toggle_auto_scale();
                                 }
-                                KeyCode::Up => {
-                                    app.inline_edit_focus = InlineEditFocus::Input;
-                                }
+                                KeyCode::Up => {}
                                 KeyCode::Down | KeyCode::Tab => {
-                                    app.inline_edit_focus = InlineEditFocus::Confirm;
+                                    app.inline_edit_focus = InlineEditFocus::Input;
                                 }
                                 _ => {}
                             },
+                            InlineEditFocus::SecondaryInput => {
+                                if app.inline_edit_input_active {
+                                    match key.code {
+                                        KeyCode::Esc => {
+                                            app.inline_edit_input_active = false;
+                                        }
+                                        KeyCode::Enter => {
+                                            app.apply_inline_edit();
+                                        }
+                                        KeyCode::Backspace => {
+                                            app.inline_edit_backspace();
+                                        }
+                                        KeyCode::Left => {
+                                            app.inline_edit_left();
+                                        }
+                                        KeyCode::Right => {
+                                            app.inline_edit_right();
+                                        }
+                                        KeyCode::Up => {
+                                            app.inline_edit_input_active = false;
+                                            app.inline_edit_focus = InlineEditFocus::Input;
+                                        }
+                                        KeyCode::Down | KeyCode::Tab => {
+                                            app.inline_edit_input_active = false;
+                                            app.inline_edit_focus = InlineEditFocus::Confirm;
+                                        }
+                                        KeyCode::Char(c) => {
+                                            app.inline_edit_char(c);
+                                        }
+                                        _ => {}
+                                    }
+                                } else {
+                                    match key.code {
+                                        KeyCode::Esc => {
+                                            app.cancel_inline_edit();
+                                        }
+                                        KeyCode::Enter => {
+                                            app.inline_edit_activate_input();
+                                        }
+                                        KeyCode::Left => {
+                                            app.inline_edit_decrease();
+                                        }
+                                        KeyCode::Right => {
+                                            app.inline_edit_increase();
+                                        }
+                                        KeyCode::Up => {
+                                            app.inline_edit_focus = InlineEditFocus::Input;
+                                        }
+                                        KeyCode::Down | KeyCode::Tab => {
+                                            app.inline_edit_focus = InlineEditFocus::Confirm;
+                                        }
+                                        KeyCode::Char(c) => {
+                                            app.inline_edit_secondary_buffer.clear();
+                                            app.inline_edit_secondary_cursor = 0;
+                                            app.inline_edit_secondary_selected = false;
+                                            app.inline_edit_char(c);
+                                            app.inline_edit_input_active = true;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
                             InlineEditFocus::Input => {
                                 if app.inline_edit_input_active {
-                                    // Text input mode - arrow keys move cursor
                                     match key.code {
                                         KeyCode::Esc => {
                                             app.inline_edit_input_active = false;
@@ -836,11 +960,15 @@ fn run_app(
                                         }
                                         KeyCode::Down | KeyCode::Tab => {
                                             app.inline_edit_input_active = false;
-                                            app.inline_edit_focus = if has_auto_toggle {
-                                                InlineEditFocus::AutoToggle
+                                            app.inline_edit_focus = if has_secondary_input {
+                                                InlineEditFocus::SecondaryInput
                                             } else {
                                                 InlineEditFocus::Confirm
                                             };
+                                        }
+                                        KeyCode::Up if has_auto_toggle => {
+                                            app.inline_edit_input_active = false;
+                                            app.inline_edit_focus = InlineEditFocus::AutoToggle;
                                         }
                                         KeyCode::Char(c) => {
                                             app.inline_edit_char(c);
@@ -848,7 +976,6 @@ fn run_app(
                                         _ => {}
                                     }
                                 } else {
-                                    // Navigation mode
                                     match key.code {
                                         KeyCode::Esc => {
                                             app.cancel_inline_edit();
@@ -867,11 +994,14 @@ fn run_app(
                                             app.inline_edit_increase();
                                         }
                                         KeyCode::Down | KeyCode::Tab => {
-                                            app.inline_edit_focus = if has_auto_toggle {
-                                                InlineEditFocus::AutoToggle
+                                            app.inline_edit_focus = if has_secondary_input {
+                                                InlineEditFocus::SecondaryInput
                                             } else {
                                                 InlineEditFocus::Confirm
                                             };
+                                        }
+                                        KeyCode::Up if has_auto_toggle => {
+                                            app.inline_edit_focus = InlineEditFocus::AutoToggle;
                                         }
                                         KeyCode::Char(c) => {
                                             if edit_field != HeaderEditField::Colors {
@@ -1098,28 +1228,43 @@ fn run_app(
                                 {
                                     app.inline_edit_focus = InlineEditFocus::AutoToggle;
                                     app.inline_edit_input_active = false;
-                                    app.inline_edit_auto_scale = !app.inline_edit_auto_scale;
-                                    app.auto_scale = app.inline_edit_auto_scale;
+                                    app.inline_edit_toggle_auto_scale();
                                     continue;
                                 }
 
                                 // Calculate popup bounds
                                 let (px, py) = app.inline_edit_pos;
                                 let size = terminal.size()?;
-                                let popup_width =
-                                    30u16.max(app.inline_edit_buffer.len() as u16 + 6);
                                 let has_auto_toggle =
                                     app.inline_edit == Some(HeaderEditField::Scale);
-                                let popup_height = if has_auto_toggle { 5u16 } else { 4u16 };
+                                let has_secondary_input = app.inline_edit
+                                    == Some(HeaderEditField::Scale)
+                                    && app.inline_edit_has_secondary_input();
+                                let popup_width = 34u16.max(
+                                    app.inline_edit_buffer
+                                        .len()
+                                        .max(app.inline_edit_secondary_buffer.len())
+                                        as u16
+                                        + 12,
+                                );
+                                let popup_height = if has_secondary_input {
+                                    6u16
+                                } else if has_auto_toggle {
+                                    5u16
+                                } else {
+                                    4u16
+                                };
                                 let popup_x = px
                                     .saturating_sub(1)
                                     .min(size.width.saturating_sub(popup_width));
                                 let popup_y =
                                     (py + 1).min(size.height.saturating_sub(popup_height));
 
-                                // Check if input area was clicked (first line inside popup)
-                                let input_row = popup_y + 1;
-                                if mouse.row == input_row
+                                let primary_input_row =
+                                    popup_y + if has_auto_toggle { 2 } else { 1 };
+                                let secondary_input_row = primary_input_row + 1;
+
+                                if mouse.row == primary_input_row
                                     && mouse.column > popup_x
                                     && mouse.column < popup_x + popup_width - 1
                                 {
@@ -1127,6 +1272,16 @@ fn run_app(
                                     if app.inline_edit != Some(HeaderEditField::Colors) {
                                         app.inline_edit_activate_input();
                                     }
+                                    continue;
+                                }
+
+                                if has_secondary_input
+                                    && mouse.row == secondary_input_row
+                                    && mouse.column > popup_x
+                                    && mouse.column < popup_x + popup_width - 1
+                                {
+                                    app.inline_edit_focus = InlineEditFocus::SecondaryInput;
+                                    app.inline_edit_activate_input();
                                     continue;
                                 }
 

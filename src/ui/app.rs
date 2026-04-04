@@ -20,8 +20,10 @@ pub struct PingPopup {
 pub enum SettingsField {
     Target,
     Interval,
-    Scale,
     AutoScale,
+    Scale,
+    ScaleMin,
+    ScaleMax,
     ColorScheme,
     ShowCursor,
     Sparkline,
@@ -45,6 +47,8 @@ pub enum HeaderEditField {
 pub enum InlineEditFocus {
     /// The text/value input field
     Input,
+    /// The secondary text/value input field
+    SecondaryInput,
     /// The auto-scale checkbox (only for Scale popup)
     AutoToggle,
     /// The confirm button
@@ -52,38 +56,6 @@ pub enum InlineEditFocus {
 }
 
 impl SettingsField {
-    pub fn next(self) -> Self {
-        match self {
-            SettingsField::Target => SettingsField::Interval,
-            SettingsField::Interval => SettingsField::Scale,
-            SettingsField::Scale => SettingsField::AutoScale,
-            SettingsField::AutoScale => SettingsField::ColorScheme,
-            SettingsField::ColorScheme => SettingsField::ShowCursor,
-            SettingsField::ShowCursor => SettingsField::Sparkline,
-            SettingsField::Sparkline => SettingsField::DeferRow,
-            SettingsField::DeferRow => SettingsField::BufferSize,
-            SettingsField::BufferSize => SettingsField::Confirm,
-            SettingsField::Confirm => SettingsField::Cancel,
-            SettingsField::Cancel => SettingsField::Target,
-        }
-    }
-
-    pub fn prev(self) -> Self {
-        match self {
-            SettingsField::Target => SettingsField::Cancel,
-            SettingsField::Interval => SettingsField::Target,
-            SettingsField::Scale => SettingsField::Interval,
-            SettingsField::AutoScale => SettingsField::Scale,
-            SettingsField::ColorScheme => SettingsField::AutoScale,
-            SettingsField::ShowCursor => SettingsField::ColorScheme,
-            SettingsField::Sparkline => SettingsField::ShowCursor,
-            SettingsField::DeferRow => SettingsField::Sparkline,
-            SettingsField::BufferSize => SettingsField::DeferRow,
-            SettingsField::Confirm => SettingsField::BufferSize,
-            SettingsField::Cancel => SettingsField::Confirm,
-        }
-    }
-
     /// Returns true if this field supports text input
     pub fn is_text_input(self) -> bool {
         matches!(
@@ -91,6 +63,8 @@ impl SettingsField {
             SettingsField::Target
                 | SettingsField::Interval
                 | SettingsField::Scale
+                | SettingsField::ScaleMin
+                | SettingsField::ScaleMax
                 | SettingsField::BufferSize
         )
     }
@@ -100,6 +74,60 @@ impl SettingsField {
         matches!(self, SettingsField::Confirm | SettingsField::Cancel)
     }
 }
+
+const MANUAL_SETTINGS_FIELDS: [SettingsField; 11] = [
+    SettingsField::Target,
+    SettingsField::Interval,
+    SettingsField::AutoScale,
+    SettingsField::Scale,
+    SettingsField::ColorScheme,
+    SettingsField::ShowCursor,
+    SettingsField::Sparkline,
+    SettingsField::DeferRow,
+    SettingsField::BufferSize,
+    SettingsField::Confirm,
+    SettingsField::Cancel,
+];
+
+const MANUAL_SETTINGS_CONTENT_FIELDS: [SettingsField; 9] = [
+    SettingsField::Target,
+    SettingsField::Interval,
+    SettingsField::AutoScale,
+    SettingsField::Scale,
+    SettingsField::ColorScheme,
+    SettingsField::ShowCursor,
+    SettingsField::Sparkline,
+    SettingsField::DeferRow,
+    SettingsField::BufferSize,
+];
+
+const AUTO_SETTINGS_FIELDS: [SettingsField; 12] = [
+    SettingsField::Target,
+    SettingsField::Interval,
+    SettingsField::AutoScale,
+    SettingsField::ScaleMin,
+    SettingsField::ScaleMax,
+    SettingsField::ColorScheme,
+    SettingsField::ShowCursor,
+    SettingsField::Sparkline,
+    SettingsField::DeferRow,
+    SettingsField::BufferSize,
+    SettingsField::Confirm,
+    SettingsField::Cancel,
+];
+
+const AUTO_SETTINGS_CONTENT_FIELDS: [SettingsField; 10] = [
+    SettingsField::Target,
+    SettingsField::Interval,
+    SettingsField::AutoScale,
+    SettingsField::ScaleMin,
+    SettingsField::ScaleMax,
+    SettingsField::ColorScheme,
+    SettingsField::ShowCursor,
+    SettingsField::Sparkline,
+    SettingsField::DeferRow,
+    SettingsField::BufferSize,
+];
 
 /// Application state
 pub struct App {
@@ -142,6 +170,10 @@ pub struct App {
     pub settings_interval: u64,
     /// Temporary scale value being edited
     pub settings_scale: u64,
+    /// Temporary minimum auto-scale value being edited
+    pub settings_scale_min: u64,
+    /// Temporary maximum auto-scale value being edited
+    pub settings_scale_max: u64,
     /// Temporary color scheme being edited
     pub settings_colors: ColorScheme,
     /// Text input buffer for typing values
@@ -154,6 +186,10 @@ pub struct App {
     pub settings_input_selected: bool,
     /// Original values when settings was opened (for cancel)
     pub settings_original_scale: u64,
+    /// Original minimum auto-scale value when settings was opened (for cancel)
+    pub settings_original_scale_min: u64,
+    /// Original maximum auto-scale value when settings was opened (for cancel)
+    pub settings_original_scale_max: u64,
     /// Original color scheme when settings was opened (for cancel)
     pub settings_original_colors: ColorScheme,
     /// Original show cursor when settings was opened (for cancel)
@@ -186,12 +222,20 @@ pub struct App {
     pub inline_edit_pos: (u16, u16),
     /// Inline edit input buffer
     pub inline_edit_buffer: String,
+    /// Inline edit secondary input buffer
+    pub inline_edit_secondary_buffer: String,
     /// Inline edit cursor position
     pub inline_edit_cursor: usize,
+    /// Inline edit secondary cursor position
+    pub inline_edit_secondary_cursor: usize,
     /// Inline edit text selected
     pub inline_edit_selected: bool,
+    /// Inline edit secondary text selected
+    pub inline_edit_secondary_selected: bool,
     /// Original value before inline edit (for cancel)
     pub inline_edit_original: String,
+    /// Original secondary value before inline edit (for cancel)
+    pub inline_edit_original_secondary: String,
     /// Whether inline edit is in text input mode (vs navigation mode)
     pub inline_edit_input_active: bool,
     /// Inline edit confirm button area (x, y, width)
@@ -204,6 +248,10 @@ pub struct App {
     pub inline_edit_auto_scale: bool,
     /// Original auto_scale value when inline edit opened (for cancel)
     pub inline_edit_original_auto_scale: bool,
+    /// Original minimum auto-scale value when inline edit opened (for cancel)
+    pub inline_edit_original_scale_min: u64,
+    /// Original maximum auto-scale value when inline edit opened (for cancel)
+    pub inline_edit_original_scale_max: u64,
     /// Currently selected header field for tab navigation (None = no selection)
     pub header_selected: Option<HeaderEditField>,
     /// Whether quit confirmation dialog is shown
@@ -230,6 +278,10 @@ impl App {
         let color_scale = ColorScale::new(scale_val, config.colors);
         let settings_interval = config.interval;
         let settings_scale = scale_val;
+        let settings_scale_min = config.scale_min;
+        let settings_scale_max = config.scale_max;
+        let inline_edit_original_scale_min = config.scale_min;
+        let inline_edit_original_scale_max = config.scale_max;
         let settings_colors = config.colors;
         let settings_target = config.host.clone().unwrap_or_default();
         let settings_show_cursor = config.show_cursor;
@@ -258,12 +310,16 @@ impl App {
             settings_target,
             settings_interval,
             settings_scale,
+            settings_scale_min,
+            settings_scale_max,
             settings_colors,
             settings_input_buffer: String::new(),
             settings_input_cursor: 0,
             settings_input_active: false,
             settings_input_selected: false,
             settings_original_scale: settings_scale,
+            settings_original_scale_min: settings_scale_min,
+            settings_original_scale_max: settings_scale_max,
             settings_original_colors: settings_colors,
             settings_original_show_cursor: settings_show_cursor,
             settings_show_cursor,
@@ -280,15 +336,21 @@ impl App {
             inline_edit: None,
             inline_edit_pos: (0, 0),
             inline_edit_buffer: String::new(),
+            inline_edit_secondary_buffer: String::new(),
             inline_edit_cursor: 0,
+            inline_edit_secondary_cursor: 0,
             inline_edit_selected: false,
+            inline_edit_secondary_selected: false,
             inline_edit_original: String::new(),
+            inline_edit_original_secondary: String::new(),
             inline_edit_input_active: false,
             inline_edit_confirm_area: None,
             inline_edit_auto_area: None,
             inline_edit_focus: InlineEditFocus::Input,
             inline_edit_auto_scale: auto_scale,
             inline_edit_original_auto_scale: auto_scale,
+            inline_edit_original_scale_min,
+            inline_edit_original_scale_max,
             header_selected: None,
             quit_confirm: false,
             quit_confirm_no_focused: false,
@@ -338,7 +400,7 @@ impl App {
     /// Returns a suitable scale value with headroom, or a default if no data.
     pub fn compute_visible_max_rtt(&self, width: usize, height: usize) -> u64 {
         if self.results.is_empty() || width == 0 || height == 0 {
-            return self.color_scale.max_rtt;
+            return self.bounded_auto_scale_value(self.color_scale.max_rtt);
         }
 
         let total_results = self.result_base_seq + self.results.len();
@@ -371,7 +433,69 @@ impl App {
 
         // Add 20% headroom and round up
         let with_headroom = (max_rtt_ms * 1.2).ceil() as u64;
-        with_headroom.max(1)
+        self.bounded_auto_scale_value(with_headroom.max(1))
+    }
+
+    fn bounded_auto_scale_value(&self, value: u64) -> u64 {
+        value.clamp(self.config.scale_min, self.config.scale_max)
+    }
+
+    fn settings_visible_fields(&self) -> &'static [SettingsField] {
+        if self.settings_auto_scale {
+            &AUTO_SETTINGS_FIELDS
+        } else {
+            &MANUAL_SETTINGS_FIELDS
+        }
+    }
+
+    fn settings_content_fields(&self) -> &'static [SettingsField] {
+        if self.settings_auto_scale {
+            &AUTO_SETTINGS_CONTENT_FIELDS
+        } else {
+            &MANUAL_SETTINGS_CONTENT_FIELDS
+        }
+    }
+
+    fn settings_menu_height(&self) -> u16 {
+        let field_count = self.settings_content_fields().len() as u16;
+        field_count * 2 + 7
+    }
+
+    fn normalize_settings_scale_bounds(&mut self, changed_field: SettingsField) {
+        match changed_field {
+            SettingsField::ScaleMin if self.settings_scale_min > self.settings_scale_max => {
+                self.settings_scale_max = self.settings_scale_min;
+            }
+            SettingsField::ScaleMax if self.settings_scale_max < self.settings_scale_min => {
+                self.settings_scale_min = self.settings_scale_max;
+            }
+            _ => {}
+        }
+
+        self.config.scale_min = self.settings_scale_min;
+        self.config.scale_max = self.settings_scale_max;
+
+        if self.settings_auto_scale {
+            let bounded = self.bounded_auto_scale_value(self.color_scale.max_rtt);
+            self.color_scale = ColorScale::new(bounded, self.settings_colors);
+        }
+    }
+
+    fn sync_settings_field_visibility(&mut self) {
+        if self
+            .settings_visible_fields()
+            .contains(&self.settings_field)
+        {
+            return;
+        }
+
+        self.settings_input_active = false;
+        self.settings_input_selected = false;
+        self.settings_field = if self.settings_auto_scale {
+            SettingsField::ScaleMin
+        } else {
+            SettingsField::Scale
+        };
     }
 
     /// Calculate current total rows of data (using stable sequence numbers)
@@ -519,6 +643,8 @@ impl App {
         self.settings_target = self.config.host.clone().unwrap_or_default();
         self.settings_interval = self.config.interval;
         self.settings_scale = self.color_scale.max_rtt;
+        self.settings_scale_min = self.config.scale_min;
+        self.settings_scale_max = self.config.scale_max;
         self.settings_colors = self.color_scale.scheme;
         self.settings_show_cursor = self.config.show_cursor;
         self.settings_input_buffer.clear();
@@ -527,6 +653,8 @@ impl App {
         self.settings_input_selected = false;
         // Store originals for cancel
         self.settings_original_scale = self.color_scale.max_rtt;
+        self.settings_original_scale_min = self.config.scale_min;
+        self.settings_original_scale_max = self.config.scale_max;
         self.settings_original_colors = self.color_scale.scheme;
         self.settings_original_show_cursor = self.config.show_cursor;
         self.settings_original_auto_scale = self.auto_scale;
@@ -535,6 +663,8 @@ impl App {
         self.settings_auto_scale = self.auto_scale;
         self.settings_sparkline = self.config.sparkline;
         self.settings_defer_row = self.defer_row;
+        self.config.scale_min = self.settings_scale_min;
+        self.config.scale_max = self.settings_scale_max;
     }
 
     /// Toggle settings menu
@@ -553,6 +683,8 @@ impl App {
             ColorScale::new(self.settings_original_scale, self.settings_original_colors);
         self.config.show_cursor = self.settings_original_show_cursor;
         self.auto_scale = self.settings_original_auto_scale;
+        self.config.scale_min = self.settings_original_scale_min;
+        self.config.scale_max = self.settings_original_scale_max;
         self.config.sparkline = self.settings_original_sparkline;
         self.defer_row = self.settings_original_defer_row;
         self.config.defer_row = self.settings_original_defer_row;
@@ -577,13 +709,20 @@ impl App {
         // Apply interval
         self.config.interval = self.settings_interval;
         // Apply scale and colors
-        self.config.scale = if self.auto_scale {
+        self.config.scale = if self.settings_auto_scale {
             None
         } else {
             Some(self.settings_scale)
         };
+        self.config.scale_min = self.settings_scale_min;
+        self.config.scale_max = self.settings_scale_max;
         self.config.colors = self.settings_colors;
-        self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
+        let effective_scale = if self.settings_auto_scale {
+            self.bounded_auto_scale_value(self.color_scale.max_rtt)
+        } else {
+            self.settings_scale
+        };
+        self.color_scale = ColorScale::new(effective_scale, self.settings_colors);
         // Apply show cursor
         self.config.show_cursor = self.settings_show_cursor;
         // Apply auto scale
@@ -611,12 +750,24 @@ impl App {
 
     /// Navigate to next settings field
     pub fn settings_next_field(&mut self) {
-        self.settings_field = self.settings_field.next();
+        let fields = self.settings_visible_fields();
+        let next_index = fields
+            .iter()
+            .position(|field| *field == self.settings_field)
+            .map(|index| (index + 1) % fields.len())
+            .unwrap_or(0);
+        self.settings_field = fields[next_index];
     }
 
     /// Navigate to previous settings field
     pub fn settings_prev_field(&mut self) {
-        self.settings_field = self.settings_field.prev();
+        let fields = self.settings_visible_fields();
+        let prev_index = fields
+            .iter()
+            .position(|field| *field == self.settings_field)
+            .map(|index| (index + fields.len() - 1) % fields.len())
+            .unwrap_or(fields.len().saturating_sub(1));
+        self.settings_field = fields[prev_index];
     }
 
     /// Increase current settings value
@@ -631,9 +782,18 @@ impl App {
                 // Apply immediately
                 self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
             }
+            SettingsField::ScaleMin => {
+                self.settings_scale_min = self.settings_scale_min.saturating_add(1).min(100000);
+                self.normalize_settings_scale_bounds(SettingsField::ScaleMin);
+            }
+            SettingsField::ScaleMax => {
+                self.settings_scale_max = self.settings_scale_max.saturating_add(1).min(100000);
+                self.normalize_settings_scale_bounds(SettingsField::ScaleMax);
+            }
             SettingsField::AutoScale => {
                 self.settings_auto_scale = !self.settings_auto_scale;
                 self.auto_scale = self.settings_auto_scale;
+                self.sync_settings_field_visibility();
             }
             SettingsField::ColorScheme => {
                 self.settings_colors = self.settings_colors.next();
@@ -672,9 +832,18 @@ impl App {
                 // Apply immediately
                 self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
             }
+            SettingsField::ScaleMin => {
+                self.settings_scale_min = self.settings_scale_min.saturating_sub(1).max(1);
+                self.normalize_settings_scale_bounds(SettingsField::ScaleMin);
+            }
+            SettingsField::ScaleMax => {
+                self.settings_scale_max = self.settings_scale_max.saturating_sub(1).max(1);
+                self.normalize_settings_scale_bounds(SettingsField::ScaleMax);
+            }
             SettingsField::AutoScale => {
                 self.settings_auto_scale = !self.settings_auto_scale;
                 self.auto_scale = self.settings_auto_scale;
+                self.sync_settings_field_visibility();
             }
             SettingsField::ColorScheme => {
                 self.settings_colors = self.settings_colors.prev();
@@ -710,6 +879,8 @@ impl App {
                 SettingsField::Target => self.settings_target.clone(),
                 SettingsField::Interval => self.settings_interval.to_string(),
                 SettingsField::Scale => self.settings_scale.to_string(),
+                SettingsField::ScaleMin => self.settings_scale_min.to_string(),
+                SettingsField::ScaleMax => self.settings_scale_max.to_string(),
                 SettingsField::BufferSize => self.settings_buffer_mb.to_string(),
                 SettingsField::ColorScheme
                 | SettingsField::ShowCursor
@@ -740,7 +911,11 @@ impl App {
                     self.settings_input_cursor += 1;
                     self.settings_target = self.settings_input_buffer.clone();
                 }
-                SettingsField::Interval | SettingsField::Scale | SettingsField::BufferSize => {
+                SettingsField::Interval
+                | SettingsField::Scale
+                | SettingsField::ScaleMin
+                | SettingsField::ScaleMax
+                | SettingsField::BufferSize => {
                     if c.is_ascii_digit() {
                         self.settings_input_buffer
                             .insert(self.settings_input_cursor, c);
@@ -753,6 +928,14 @@ impl App {
                                     self.settings_scale = clamped;
                                     self.color_scale =
                                         ColorScale::new(self.settings_scale, self.settings_colors);
+                                }
+                                SettingsField::ScaleMin => {
+                                    self.settings_scale_min = clamped;
+                                    self.normalize_settings_scale_bounds(SettingsField::ScaleMin);
+                                }
+                                SettingsField::ScaleMax => {
+                                    self.settings_scale_max = clamped;
+                                    self.normalize_settings_scale_bounds(SettingsField::ScaleMax);
                                 }
                                 SettingsField::BufferSize => {
                                     self.settings_buffer_mb = clamped;
@@ -797,6 +980,16 @@ impl App {
                 SettingsField::Scale => {
                     self.settings_scale = self.settings_input_buffer.parse().unwrap_or(1).max(1);
                     self.color_scale = ColorScale::new(self.settings_scale, self.settings_colors);
+                }
+                SettingsField::ScaleMin => {
+                    self.settings_scale_min =
+                        self.settings_input_buffer.parse().unwrap_or(1).max(1);
+                    self.normalize_settings_scale_bounds(SettingsField::ScaleMin);
+                }
+                SettingsField::ScaleMax => {
+                    self.settings_scale_max =
+                        self.settings_input_buffer.parse().unwrap_or(1).max(1);
+                    self.normalize_settings_scale_bounds(SettingsField::ScaleMax);
                 }
                 SettingsField::BufferSize => {
                     self.settings_buffer_mb =
@@ -850,7 +1043,9 @@ impl App {
     ) -> bool {
         // Calculate settings menu position (same as in SettingsMenu render)
         let menu_width = 65u16.min(area_width.saturating_sub(4));
-        let menu_height = 25u16.min(area_height.saturating_sub(4));
+        let menu_height = self
+            .settings_menu_height()
+            .min(area_height.saturating_sub(4));
         let menu_x = (area_width.saturating_sub(menu_width)) / 2;
         let menu_y = (area_height.saturating_sub(menu_height)) / 2;
 
@@ -867,51 +1062,24 @@ impl App {
         let rel_x = screen_x.saturating_sub(menu_x + 1); // +1 for border
         let rel_y = screen_y.saturating_sub(menu_y + 1); // +1 for border
 
-        // Map y coordinate to fields (based on line numbers in render)
-        // Line 0: empty
-        // Line 1: Target
-        // Line 2: empty
-        // Line 3: Interval
-        // Line 4: empty
-        // Line 5: Scale
-        // Line 6: empty
-        // Line 7: AutoScale
-        // Line 8: empty
-        // Line 9: ColorScheme
-        // Line 10: empty
-        // Line 11: ShowCursor
-        // Line 12: empty
-        // Line 13: Sparkline
-        // Line 14: empty
-        // Line 15: DeferRow
-        // Line 16: empty
-        // Line 17: BufferSize
-        // Line 18: empty
-        // Line 19: Buttons
+        let content_fields = self.settings_content_fields();
+        let buttons_row = 1 + (content_fields.len() as u16 * 2);
 
-        let clicked_field = match rel_y {
-            1 => Some(SettingsField::Target),
-            3 => Some(SettingsField::Interval),
-            5 => Some(SettingsField::Scale),
-            7 => Some(SettingsField::AutoScale),
-            9 => Some(SettingsField::ColorScheme),
-            11 => Some(SettingsField::ShowCursor),
-            13 => Some(SettingsField::Sparkline),
-            15 => Some(SettingsField::DeferRow),
-            17 => Some(SettingsField::BufferSize),
-            19 => {
-                // Buttons row - check x position
-                // "                    " (20 spaces) + " Confirm " (9) + "    " (4) + " Cancel " (8)
-                // Confirm: x 20-28, Cancel: x 33-40
-                if (20..29).contains(&rel_x) {
-                    Some(SettingsField::Confirm)
-                } else if (33..41).contains(&rel_x) {
-                    Some(SettingsField::Cancel)
-                } else {
-                    None
-                }
+        let clicked_field = if rel_y == buttons_row {
+            // Buttons row - check x position
+            // "                    " (20 spaces) + " Confirm " (9) + "    " (4) + " Cancel " (8)
+            // Confirm: x 20-28, Cancel: x 33-40
+            if (20..29).contains(&rel_x) {
+                Some(SettingsField::Confirm)
+            } else if (33..41).contains(&rel_x) {
+                Some(SettingsField::Cancel)
+            } else {
+                None
             }
-            _ => None,
+        } else if rel_y % 2 == 1 {
+            content_fields.get(((rel_y - 1) / 2) as usize).copied()
+        } else {
+            None
         };
 
         if let Some(field) = clicked_field {
@@ -922,6 +1090,8 @@ impl App {
                     SettingsField::Target
                     | SettingsField::Interval
                     | SettingsField::Scale
+                    | SettingsField::ScaleMin
+                    | SettingsField::ScaleMax
                     | SettingsField::BufferSize => {
                         if !self.settings_input_active {
                             self.settings_start_input();
@@ -958,6 +1128,84 @@ impl App {
         true
     }
 
+    fn parse_scale_input(buffer: &str) -> u64 {
+        buffer.parse::<u64>().unwrap_or(1).clamp(1, 100000)
+    }
+
+    pub fn inline_edit_has_secondary_input(&self) -> bool {
+        self.inline_edit == Some(HeaderEditField::Scale) && self.inline_edit_auto_scale
+    }
+
+    pub fn inline_edit_toggle_auto_scale(&mut self) {
+        if self.inline_edit != Some(HeaderEditField::Scale) {
+            return;
+        }
+
+        self.inline_edit_auto_scale = !self.inline_edit_auto_scale;
+        self.auto_scale = self.inline_edit_auto_scale;
+
+        if self.inline_edit_auto_scale {
+            self.inline_edit_buffer = self.config.scale_min.to_string();
+            self.inline_edit_secondary_buffer = self.config.scale_max.to_string();
+            self.inline_edit_cursor = self.inline_edit_buffer.len();
+            self.inline_edit_secondary_cursor = self.inline_edit_secondary_buffer.len();
+            self.inline_edit_selected = true;
+            self.inline_edit_secondary_selected = true;
+            self.inline_edit_focus = InlineEditFocus::Input;
+            self.inline_edit_input_active = true;
+        } else {
+            let manual_scale = self.bounded_auto_scale_value(self.color_scale.max_rtt);
+            self.inline_edit_buffer = manual_scale.to_string();
+            self.inline_edit_secondary_buffer.clear();
+            self.inline_edit_cursor = self.inline_edit_buffer.len();
+            self.inline_edit_secondary_cursor = 0;
+            self.inline_edit_selected = true;
+            self.inline_edit_secondary_selected = false;
+            self.inline_edit_focus = InlineEditFocus::Input;
+            self.inline_edit_input_active = true;
+            self.color_scale = ColorScale::new(manual_scale, self.color_scale.scheme);
+        }
+
+        self.sync_inline_scale_preview();
+    }
+
+    fn sync_inline_scale_preview(&mut self) {
+        if self.inline_edit != Some(HeaderEditField::Scale) {
+            return;
+        }
+
+        if self.inline_edit_auto_scale {
+            let mut min_scale = Self::parse_scale_input(&self.inline_edit_buffer);
+            let mut max_scale = Self::parse_scale_input(&self.inline_edit_secondary_buffer);
+
+            match self.inline_edit_focus {
+                InlineEditFocus::SecondaryInput if max_scale < min_scale => {
+                    min_scale = max_scale;
+                    self.inline_edit_buffer = min_scale.to_string();
+                    self.inline_edit_cursor =
+                        self.inline_edit_cursor.min(self.inline_edit_buffer.len());
+                }
+                _ if min_scale > max_scale => {
+                    max_scale = min_scale;
+                    self.inline_edit_secondary_buffer = max_scale.to_string();
+                    self.inline_edit_secondary_cursor = self
+                        .inline_edit_secondary_cursor
+                        .min(self.inline_edit_secondary_buffer.len());
+                }
+                _ => {}
+            }
+
+            self.config.scale_min = min_scale;
+            self.config.scale_max = max_scale;
+
+            let bounded = self.bounded_auto_scale_value(self.color_scale.max_rtt);
+            self.color_scale = ColorScale::new(bounded, self.color_scale.scheme);
+        } else {
+            let manual_scale = Self::parse_scale_input(&self.inline_edit_buffer);
+            self.color_scale = ColorScale::new(manual_scale, self.color_scale.scheme);
+        }
+    }
+
     /// Start inline edit for a header field
     pub fn start_inline_edit(&mut self, field: HeaderEditField, x: u16, y: u16) {
         self.inline_edit = Some(field);
@@ -965,19 +1213,35 @@ impl App {
         self.inline_edit_buffer = match field {
             HeaderEditField::Target => self.config.host.clone().unwrap_or_default(),
             HeaderEditField::Interval => self.config.interval.to_string(),
-            HeaderEditField::Scale => self.color_scale.max_rtt.to_string(),
+            HeaderEditField::Scale => {
+                if self.auto_scale {
+                    self.config.scale_min.to_string()
+                } else {
+                    self.color_scale.max_rtt.to_string()
+                }
+            }
             HeaderEditField::Colors => format!("{}", self.color_scale.scheme),
         };
+        self.inline_edit_secondary_buffer = if field == HeaderEditField::Scale && self.auto_scale {
+            self.config.scale_max.to_string()
+        } else {
+            String::new()
+        };
         self.inline_edit_original = self.inline_edit_buffer.clone();
+        self.inline_edit_original_secondary = self.inline_edit_secondary_buffer.clone();
         // For text fields, start with text selected and input active
         if field != HeaderEditField::Colors {
             self.inline_edit_input_active = true;
             self.inline_edit_selected = true;
             self.inline_edit_cursor = self.inline_edit_buffer.len();
+            self.inline_edit_secondary_cursor = self.inline_edit_secondary_buffer.len();
+            self.inline_edit_secondary_selected = true;
         } else {
             self.inline_edit_input_active = false;
             self.inline_edit_selected = false;
             self.inline_edit_cursor = 0;
+            self.inline_edit_secondary_cursor = 0;
+            self.inline_edit_secondary_selected = false;
         }
         // Clear header selection when opening inline edit
         self.header_selected = None;
@@ -986,6 +1250,8 @@ impl App {
         // Store auto_scale state for Scale popup
         self.inline_edit_auto_scale = self.auto_scale;
         self.inline_edit_original_auto_scale = self.auto_scale;
+        self.inline_edit_original_scale_min = self.config.scale_min;
+        self.inline_edit_original_scale_max = self.config.scale_max;
     }
 
     /// Activate text input mode for inline edit
@@ -994,8 +1260,16 @@ impl App {
             // Don't activate input mode for Colors (it's an enum selector)
             if field != HeaderEditField::Colors {
                 self.inline_edit_input_active = true;
-                self.inline_edit_selected = true;
-                self.inline_edit_cursor = self.inline_edit_buffer.len();
+                match self.inline_edit_focus {
+                    InlineEditFocus::SecondaryInput => {
+                        self.inline_edit_secondary_selected = true;
+                        self.inline_edit_secondary_cursor = self.inline_edit_secondary_buffer.len();
+                    }
+                    _ => {
+                        self.inline_edit_selected = true;
+                        self.inline_edit_cursor = self.inline_edit_buffer.len();
+                    }
+                }
             }
         }
     }
@@ -1006,7 +1280,12 @@ impl App {
             // Restore original value for scale/colors (they have live preview)
             match field {
                 HeaderEditField::Scale => {
-                    if let Ok(val) = self.inline_edit_original.parse::<u64>() {
+                    self.config.scale_min = self.inline_edit_original_scale_min;
+                    self.config.scale_max = self.inline_edit_original_scale_max;
+                    if self.inline_edit_original_auto_scale {
+                        let bounded = self.bounded_auto_scale_value(self.color_scale.max_rtt);
+                        self.color_scale = ColorScale::new(bounded, self.color_scale.scheme);
+                    } else if let Ok(val) = self.inline_edit_original.parse::<u64>() {
                         self.color_scale = ColorScale::new(val.max(1), self.color_scale.scheme);
                     }
                     self.auto_scale = self.inline_edit_original_auto_scale;
@@ -1027,6 +1306,7 @@ impl App {
         }
         self.inline_edit = None;
         self.inline_edit_input_active = false;
+        self.inline_edit_secondary_selected = false;
     }
 
     /// Apply inline edit
@@ -1057,8 +1337,16 @@ impl App {
                     self.auto_scale = self.inline_edit_auto_scale;
                     if self.auto_scale {
                         self.config.scale = None;
+                        self.config.scale_min = Self::parse_scale_input(&self.inline_edit_buffer);
+                        self.config.scale_max =
+                            Self::parse_scale_input(&self.inline_edit_secondary_buffer)
+                                .max(self.config.scale_min);
+                        let bounded = self.bounded_auto_scale_value(self.color_scale.max_rtt);
+                        self.color_scale = ColorScale::new(bounded, self.color_scale.scheme);
                     } else {
-                        self.config.scale = Some(self.color_scale.max_rtt);
+                        let manual_scale = Self::parse_scale_input(&self.inline_edit_buffer);
+                        self.config.scale = Some(manual_scale);
+                        self.color_scale = ColorScale::new(manual_scale, self.color_scale.scheme);
                     }
                 }
                 HeaderEditField::Colors => {
@@ -1068,6 +1356,7 @@ impl App {
             }
         }
         self.inline_edit = None;
+        self.inline_edit_input_active = false;
     }
 
     /// Handle character input in inline edit
@@ -1077,27 +1366,42 @@ impl App {
         }
         let field = self.inline_edit.unwrap();
 
-        if self.inline_edit_selected {
-            self.inline_edit_buffer.clear();
-            self.inline_edit_cursor = 0;
-            self.inline_edit_selected = false;
-        }
-
         match field {
             HeaderEditField::Target => {
+                if self.inline_edit_selected {
+                    self.inline_edit_buffer.clear();
+                    self.inline_edit_cursor = 0;
+                    self.inline_edit_selected = false;
+                }
                 self.inline_edit_buffer.insert(self.inline_edit_cursor, c);
                 self.inline_edit_cursor += 1;
             }
             HeaderEditField::Interval | HeaderEditField::Scale => {
                 if c.is_ascii_digit() {
-                    self.inline_edit_buffer.insert(self.inline_edit_cursor, c);
-                    self.inline_edit_cursor += 1;
-                    // Live preview for scale
-                    if field == HeaderEditField::Scale
-                        && let Ok(val) = self.inline_edit_buffer.parse::<u64>()
-                    {
-                        self.color_scale =
-                            ColorScale::new(val.clamp(1, 100000), self.color_scale.scheme);
+                    let (buffer, cursor, selected) = match self.inline_edit_focus {
+                        InlineEditFocus::SecondaryInput => (
+                            &mut self.inline_edit_secondary_buffer,
+                            &mut self.inline_edit_secondary_cursor,
+                            &mut self.inline_edit_secondary_selected,
+                        ),
+                        _ => (
+                            &mut self.inline_edit_buffer,
+                            &mut self.inline_edit_cursor,
+                            &mut self.inline_edit_selected,
+                        ),
+                    };
+
+                    if *selected {
+                        buffer.clear();
+                        *cursor = 0;
+                        *selected = false;
+                    }
+
+                    buffer.insert(*cursor, c);
+                    *cursor += 1;
+
+                    if field == HeaderEditField::Scale {
+                        self.sync_inline_scale_preview();
                     }
                 }
             }
@@ -1114,35 +1418,68 @@ impl App {
         }
         let field = self.inline_edit.unwrap();
 
-        if self.inline_edit_selected {
-            self.inline_edit_buffer.clear();
-            self.inline_edit_cursor = 0;
-            self.inline_edit_selected = false;
-        } else if self.inline_edit_cursor > 0 {
-            self.inline_edit_cursor -= 1;
-            self.inline_edit_buffer.remove(self.inline_edit_cursor);
+        let (buffer, cursor, selected) = match self.inline_edit_focus {
+            InlineEditFocus::SecondaryInput => (
+                &mut self.inline_edit_secondary_buffer,
+                &mut self.inline_edit_secondary_cursor,
+                &mut self.inline_edit_secondary_selected,
+            ),
+            _ => (
+                &mut self.inline_edit_buffer,
+                &mut self.inline_edit_cursor,
+                &mut self.inline_edit_selected,
+            ),
+        };
+
+        if *selected {
+            buffer.clear();
+            *cursor = 0;
+            *selected = false;
+        } else if *cursor > 0 {
+            *cursor -= 1;
+            buffer.remove(*cursor);
         }
 
         // Live preview for scale
         if field == HeaderEditField::Scale {
-            let val = self.inline_edit_buffer.parse::<u64>().unwrap_or(1).max(1);
-            self.color_scale = ColorScale::new(val, self.color_scale.scheme);
+            self.sync_inline_scale_preview();
         }
     }
 
     /// Move cursor left in inline edit
     pub fn inline_edit_left(&mut self) {
-        self.inline_edit_selected = false;
-        if self.inline_edit_cursor > 0 {
-            self.inline_edit_cursor -= 1;
+        let (cursor, selected) = match self.inline_edit_focus {
+            InlineEditFocus::SecondaryInput => (
+                &mut self.inline_edit_secondary_cursor,
+                &mut self.inline_edit_secondary_selected,
+            ),
+            _ => (&mut self.inline_edit_cursor, &mut self.inline_edit_selected),
+        };
+
+        *selected = false;
+        if *cursor > 0 {
+            *cursor -= 1;
         }
     }
 
     /// Move cursor right in inline edit
     pub fn inline_edit_right(&mut self) {
-        self.inline_edit_selected = false;
-        if self.inline_edit_cursor < self.inline_edit_buffer.len() {
-            self.inline_edit_cursor += 1;
+        let (buffer_len, cursor, selected) = match self.inline_edit_focus {
+            InlineEditFocus::SecondaryInput => (
+                self.inline_edit_secondary_buffer.len(),
+                &mut self.inline_edit_secondary_cursor,
+                &mut self.inline_edit_secondary_selected,
+            ),
+            _ => (
+                self.inline_edit_buffer.len(),
+                &mut self.inline_edit_cursor,
+                &mut self.inline_edit_selected,
+            ),
+        };
+
+        *selected = false;
+        if *cursor < buffer_len {
+            *cursor += 1;
         }
     }
 
@@ -1159,13 +1496,25 @@ impl App {
                     }
                 }
                 HeaderEditField::Scale => {
-                    if let Ok(val) = self.inline_edit_buffer.parse::<u64>() {
-                        let new_val = val.saturating_add(1).min(100000);
-                        self.inline_edit_buffer = new_val.to_string();
-                        self.inline_edit_cursor = self.inline_edit_buffer.len();
-                        self.inline_edit_selected = false;
-                        self.color_scale = ColorScale::new(new_val, self.color_scale.scheme);
-                    }
+                    let (buffer, cursor, selected) = match self.inline_edit_focus {
+                        InlineEditFocus::SecondaryInput => (
+                            &mut self.inline_edit_secondary_buffer,
+                            &mut self.inline_edit_secondary_cursor,
+                            &mut self.inline_edit_secondary_selected,
+                        ),
+                        _ => (
+                            &mut self.inline_edit_buffer,
+                            &mut self.inline_edit_cursor,
+                            &mut self.inline_edit_selected,
+                        ),
+                    };
+                    let new_val = Self::parse_scale_input(buffer)
+                        .saturating_add(1)
+                        .min(100000);
+                    *buffer = new_val.to_string();
+                    *cursor = buffer.len();
+                    *selected = false;
+                    self.sync_inline_scale_preview();
                 }
                 HeaderEditField::Colors => {
                     let new_scheme = self.color_scale.scheme.next();
@@ -1191,13 +1540,23 @@ impl App {
                     }
                 }
                 HeaderEditField::Scale => {
-                    if let Ok(val) = self.inline_edit_buffer.parse::<u64>() {
-                        let new_val = val.saturating_sub(1).max(1);
-                        self.inline_edit_buffer = new_val.to_string();
-                        self.inline_edit_cursor = self.inline_edit_buffer.len();
-                        self.inline_edit_selected = false;
-                        self.color_scale = ColorScale::new(new_val, self.color_scale.scheme);
-                    }
+                    let (buffer, cursor, selected) = match self.inline_edit_focus {
+                        InlineEditFocus::SecondaryInput => (
+                            &mut self.inline_edit_secondary_buffer,
+                            &mut self.inline_edit_secondary_cursor,
+                            &mut self.inline_edit_secondary_selected,
+                        ),
+                        _ => (
+                            &mut self.inline_edit_buffer,
+                            &mut self.inline_edit_cursor,
+                            &mut self.inline_edit_selected,
+                        ),
+                    };
+                    let new_val = Self::parse_scale_input(buffer).saturating_sub(1).max(1);
+                    *buffer = new_val.to_string();
+                    *cursor = buffer.len();
+                    *selected = false;
+                    self.sync_inline_scale_preview();
                 }
                 HeaderEditField::Colors => {
                     let new_scheme = self.color_scale.scheme.prev();

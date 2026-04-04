@@ -15,7 +15,7 @@ Largely inspired by the excellent https://pinggraph.io/ tool.
 - **Real-time ping visualization** — Watch latency as a scrolling color-coded graph
 - **ICMP & UDP modes** — Native ICMP ping or UDP client/server mode
 - **Interactive controls** — Pause/resume, scrollback history, mouse tooltips
-- **Configurable settings** — Target, interval, scale, color scheme adjustable at runtime
+- **Configurable settings** — Target, interval, scale, auto-scale bounds, and color scheme adjustable at runtime
 - **Statistics display** — Min/avg/max RTT, packet loss, jitter, sparkline graph
 
 ## Installation
@@ -47,6 +47,9 @@ rttui -m udp-client -p 1234 [HOST]
 # Custom interval and scale
 rttui -i 500 -s 200 8.8.8.8
 
+# Auto-scale with manual bounds
+rttui --scale-min 50 --scale-max 500 8.8.8.8
+
 # With specific color scheme
 rttui -c ocean cloudflare.com
 ```
@@ -65,7 +68,9 @@ Options:
   -p, --port <PORT>            UDP port for client/server mode [default: 44444]
       --bind <BIND>            Bind address for UDP server mode (e.g., 0.0.0.0, ::, 192.168.1.1)
   -t, --timeout <TIMEOUT>      Ping timeout in milliseconds [default: 3000]
-  -s, --scale <SCALE>          Color scale - RTT (ms) that is considered "bad" The gradient scales proportionally from low to this value [default: 200]
+  -s, --scale <SCALE>          Color scale - RTT (ms) that is considered "bad". If omitted, auto-scale mode is used
+      --scale-min <SCALE_MIN>  Minimum auto-scale value in milliseconds [default: 5]
+      --scale-max <SCALE_MAX>  Maximum auto-scale value in milliseconds [default: 100]
   -c, --colors <COLORS>        Color scheme for the graph [default: dark] [possible values: classic, dark, ocean, fire, neon, grayscale, matrix, plasma, ice, thermal]
       --show-cursor            Show the terminal cursor while running
   -b, --buffer-mb <BUFFER_MB>  History buffer size in megabytes (approximate) [default: 10]

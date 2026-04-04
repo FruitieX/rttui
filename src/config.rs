@@ -1,6 +1,9 @@
 use crate::color::ColorScheme;
 use clap::{Parser, ValueEnum};
 
+const DEFAULT_AUTO_SCALE_MIN: u64 = 5;
+const DEFAULT_AUTO_SCALE_MAX: u64 = 100;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum Mode {
     /// ICMP ping mode (may require elevated privileges)
@@ -56,6 +59,14 @@ pub struct Config {
     #[arg(short = 's', long)]
     pub scale: Option<u64>,
 
+    /// Minimum auto-scale value in milliseconds
+    #[arg(long, default_value_t = DEFAULT_AUTO_SCALE_MIN)]
+    pub scale_min: u64,
+
+    /// Maximum auto-scale value in milliseconds
+    #[arg(long, default_value_t = DEFAULT_AUTO_SCALE_MAX)]
+    pub scale_max: u64,
+
     /// Color scheme for the graph
     #[arg(short = 'c', long, value_enum, default_value = "dark")]
     pub colors: ColorScheme,
@@ -95,6 +106,18 @@ impl Config {
             && scale == 0
         {
             anyhow::bail!("Scale must be greater than 0");
+        }
+
+        if self.scale_min == 0 {
+            anyhow::bail!("Scale min must be greater than 0");
+        }
+
+        if self.scale_max == 0 {
+            anyhow::bail!("Scale max must be greater than 0");
+        }
+
+        if self.scale_min > self.scale_max {
+            anyhow::bail!("Scale min must be less than or equal to scale max");
         }
 
         if self.buffer_mb == 0 {

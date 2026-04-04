@@ -15,6 +15,8 @@ pub struct SettingsMenu {
     pub target: String,
     pub interval: u64,
     pub scale: u64,
+    pub scale_min: u64,
+    pub scale_max: u64,
     pub auto_scale: bool,
     pub colors: ColorScheme,
     pub show_cursor: bool,
@@ -34,6 +36,8 @@ impl SettingsMenu {
         target: String,
         interval: u64,
         scale: u64,
+        scale_min: u64,
+        scale_max: u64,
         auto_scale: bool,
         colors: ColorScheme,
         show_cursor: bool,
@@ -50,6 +54,8 @@ impl SettingsMenu {
             target,
             interval,
             scale,
+            scale_min,
+            scale_max,
             auto_scale,
             colors,
             show_cursor,
@@ -68,7 +74,8 @@ impl Widget for SettingsMenu {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Calculate centered position for the settings box (wider now)
         let width = 65u16.min(area.width.saturating_sub(4));
-        let height = 25u16.min(area.height.saturating_sub(4));
+        let field_count: u16 = if self.auto_scale { 10 } else { 9 };
+        let height = (field_count * 2 + 7).min(area.height.saturating_sub(4));
         let x = area.x + (area.width.saturating_sub(width)) / 2;
         let y = area.y + (area.height.saturating_sub(height)) / 2;
 
@@ -138,6 +145,8 @@ impl Widget for SettingsMenu {
         let target_spans = show_value(SettingsField::Target, &self.target);
         let interval_spans = show_value(SettingsField::Interval, &format!("{}", self.interval));
         let scale_spans = show_value(SettingsField::Scale, &format!("{}", self.scale));
+        let scale_min_spans = show_value(SettingsField::ScaleMin, &format!("{}", self.scale_min));
+        let scale_max_spans = show_value(SettingsField::ScaleMax, &format!("{}", self.scale_max));
         let buffer_spans = show_value(SettingsField::BufferSize, &format!("{}", self.buffer_mb));
 
         // Build target line
@@ -199,6 +208,42 @@ impl Widget for SettingsMenu {
             label_style,
         ));
 
+        let mut scale_min_line = vec![
+            Span::styled(
+                if self.selected_field == SettingsField::ScaleMin {
+                    "► "
+                } else {
+                    "  "
+                },
+                if self.selected_field == SettingsField::ScaleMin {
+                    selected_style
+                } else {
+                    normal_style
+                },
+            ),
+            Span::styled("Scale Min:    ", label_style),
+        ];
+        scale_min_line.extend(scale_min_spans);
+        scale_min_line.push(Span::styled(" ms (auto-scale lower bound)", label_style));
+
+        let mut scale_max_line = vec![
+            Span::styled(
+                if self.selected_field == SettingsField::ScaleMax {
+                    "► "
+                } else {
+                    "  "
+                },
+                if self.selected_field == SettingsField::ScaleMax {
+                    selected_style
+                } else {
+                    normal_style
+                },
+            ),
+            Span::styled("Scale Max:    ", label_style),
+        ];
+        scale_max_line.extend(scale_max_spans);
+        scale_max_line.push(Span::styled(" ms (auto-scale upper bound)", label_style));
+
         // Build buffer size line
         let mut buffer_line = vec![
             Span::styled(
@@ -218,43 +263,47 @@ impl Widget for SettingsMenu {
         buffer_line.extend(buffer_spans);
         buffer_line.push(Span::styled(" MB (history scrollback)", label_style));
 
-        let lines = vec![
-            Line::from(""),
-            // Target
-            Line::from(target_line),
-            Line::from(""),
-            // Interval
-            Line::from(interval_line),
-            Line::from(""),
-            // Scale
-            Line::from(scale_line),
-            Line::from(""),
-            // Auto Scale
-            Line::from(vec![
-                Span::styled(
-                    if self.selected_field == SettingsField::AutoScale {
-                        "► "
-                    } else {
-                        "  "
-                    },
-                    if self.selected_field == SettingsField::AutoScale {
-                        selected_style
-                    } else {
-                        normal_style
-                    },
-                ),
-                Span::styled("Auto Scale:   ", label_style),
-                Span::styled(
-                    if self.auto_scale { "Yes" } else { "No" },
-                    if self.selected_field == SettingsField::AutoScale {
-                        selected_style
-                    } else {
-                        value_style
-                    },
-                ),
-            ]),
-            Line::from(""),
-            // Color scheme
+        let mut lines = vec![Line::from("")];
+        lines.push(Line::from(target_line));
+        lines.push(Line::from(""));
+        lines.push(Line::from(interval_line));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                if self.selected_field == SettingsField::AutoScale {
+                    "► "
+                } else {
+                    "  "
+                },
+                if self.selected_field == SettingsField::AutoScale {
+                    selected_style
+                } else {
+                    normal_style
+                },
+            ),
+            Span::styled("Auto Scale:   ", label_style),
+            Span::styled(
+                if self.auto_scale { "Yes" } else { "No" },
+                if self.selected_field == SettingsField::AutoScale {
+                    selected_style
+                } else {
+                    value_style
+                },
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        if self.auto_scale {
+            lines.push(Line::from(scale_min_line));
+            lines.push(Line::from(""));
+            lines.push(Line::from(scale_max_line));
+            lines.push(Line::from(""));
+        } else {
+            lines.push(Line::from(scale_line));
+            lines.push(Line::from(""));
+        }
+
+        lines.extend(vec![
             Line::from(vec![
                 Span::styled(
                     if self.selected_field == SettingsField::ColorScheme {
@@ -279,7 +328,6 @@ impl Widget for SettingsMenu {
                 ),
             ]),
             Line::from(""),
-            // Show cursor
             Line::from(vec![
                 Span::styled(
                     if self.selected_field == SettingsField::ShowCursor {
@@ -304,7 +352,6 @@ impl Widget for SettingsMenu {
                 ),
             ]),
             Line::from(""),
-            // Sparkline
             Line::from(vec![
                 Span::styled(
                     if self.selected_field == SettingsField::Sparkline {
@@ -329,7 +376,6 @@ impl Widget for SettingsMenu {
                 ),
             ]),
             Line::from(""),
-            // Defer Row
             Line::from(vec![
                 Span::styled(
                     if self.selected_field == SettingsField::DeferRow {
@@ -354,10 +400,8 @@ impl Widget for SettingsMenu {
                 ),
             ]),
             Line::from(""),
-            // Buffer size
             Line::from(buffer_line),
             Line::from(""),
-            // Buttons
             Line::from(vec![
                 Span::raw("                    "),
                 Span::styled(
@@ -387,7 +431,7 @@ impl Widget for SettingsMenu {
                 "  Enter select │ Esc cancel",
                 hint_style,
             )]),
-        ];
+        ]);
 
         let paragraph = Paragraph::new(lines).alignment(Alignment::Left);
         paragraph.render(inner_area, buf);
