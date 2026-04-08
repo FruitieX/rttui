@@ -1,6 +1,6 @@
 use super::{PingResult, Pinger};
 use std::collections::HashMap;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
@@ -40,27 +40,39 @@ pub struct UdpClientPinger {
     target: SocketAddr,
     interval_ms: u64,
     timeout_ms: u64,
+    bind: Option<IpAddr>,
 }
 
 impl UdpClientPinger {
-    pub fn new(target: SocketAddr, interval_ms: u64, timeout_ms: u64) -> Self {
+    pub fn new(
+        target: SocketAddr,
+        interval_ms: u64,
+        timeout_ms: u64,
+        bind: Option<IpAddr>,
+    ) -> Self {
         Self {
             target,
             interval_ms,
             timeout_ms,
+            bind,
         }
     }
 }
 
 impl Pinger for UdpClientPinger {
     fn run(self: Box<Self>, tx: mpsc::Sender<PingResult>, stop: Arc<AtomicBool>) {
-        // Bind to matching address family (IPv4 or IPv6)
-        let bind_addr = if self.target.is_ipv4() {
-            "0.0.0.0:0"
-        } else {
-            "[::]:0"
+        // Bind to specified source address or matching address family wildcard
+        let bind_addr = match self.bind {
+            Some(addr) => SocketAddr::new(addr, 0).to_string(),
+            None => {
+                if self.target.is_ipv4() {
+                    "0.0.0.0:0".to_string()
+                } else {
+                    "[::]:0".to_string()
+                }
+            }
         };
-        let socket = match UdpSocket::bind(bind_addr) {
+        let socket = match UdpSocket::bind(&bind_addr) {
             Ok(s) => Arc::new(s),
             Err(e) => {
                 eprintln!("Failed to bind UDP socket: {}", e);

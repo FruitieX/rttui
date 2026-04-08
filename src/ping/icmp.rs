@@ -9,14 +9,16 @@ pub struct IcmpPinger {
     target: IpAddr,
     interval_ms: u64,
     timeout_ms: u64,
+    bind: Option<IpAddr>,
 }
 
 impl IcmpPinger {
-    pub fn new(target: IpAddr, interval_ms: u64, timeout_ms: u64) -> Self {
+    pub fn new(target: IpAddr, interval_ms: u64, timeout_ms: u64, bind: Option<IpAddr>) -> Self {
         Self {
             target,
             interval_ms,
             timeout_ms,
+            bind,
         }
     }
 }
@@ -45,7 +47,12 @@ impl Pinger for IcmpPinger {
             seq += 1;
             let sent_at = Instant::now();
             let ping_start = Instant::now();
-            let result = ping_rs::send_ping(&self.target, timeout, &[1, 2, 3, 4], None);
+            let options = self.bind.map(|source_addr| ping_rs::PingOptions {
+                ttl: 128,
+                dont_fragment: false,
+                source_addr: Some(source_addr),
+            });
+            let result = ping_rs::send_ping(&self.target, timeout, &[1, 2, 3, 4], options.as_ref());
 
             let ping_result = match result {
                 Ok(_reply) => {
