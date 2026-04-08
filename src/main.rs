@@ -67,12 +67,13 @@ fn build_pinger(
     interval: u64,
     timeout: u64,
     port: u16,
+    bind: Option<IpAddr>,
 ) -> Box<dyn Pinger> {
     match mode {
-        Mode::Icmp => Box::new(IcmpPinger::new(resolved_ip, interval, timeout)),
+        Mode::Icmp => Box::new(IcmpPinger::new(resolved_ip, interval, timeout, bind)),
         Mode::UdpClient => {
             let target = SocketAddr::new(resolved_ip, port);
-            Box::new(UdpClientPinger::new(target, interval, timeout))
+            Box::new(UdpClientPinger::new(target, interval, timeout, bind))
         }
         Mode::UdpServer => unreachable!(),
     }
@@ -85,6 +86,7 @@ fn start_pinger(
     interval: u64,
     timeout: u64,
     port: u16,
+    bind: Option<IpAddr>,
     tx: mpsc::Sender<PingResult>,
 ) -> PingerThread {
     let stop = Arc::new(AtomicBool::new(false));
@@ -93,7 +95,7 @@ fn start_pinger(
         if let Err(e) = set_current_thread_priority(ThreadPriority::Max) {
             eprintln!("Warning: failed to set pinger thread priority: {:?}", e);
         }
-        let pinger = build_pinger(mode, resolved_ip, interval, timeout, port);
+        let pinger = build_pinger(mode, resolved_ip, interval, timeout, port, bind);
         pinger.run(tx, stop_clone);
     });
 
@@ -120,6 +122,15 @@ fn main() -> Result<()> {
         server.run()?;
         return Ok(());
     }
+
+    // Parse bind address once
+    let bind_addr: Option<IpAddr> = match &config.bind {
+        Some(s) => Some(
+            s.parse::<IpAddr>()
+                .map_err(|_| anyhow::anyhow!("Invalid bind address: {}", s))?,
+        ),
+        None => None,
+    };
 
     // Check if we have a host - if not, we'll start with settings dialog open
     let has_host = config.host.is_some();
@@ -160,6 +171,7 @@ fn main() -> Result<()> {
             config.interval,
             config.timeout,
             config.port,
+            bind_addr,
             tx.clone(),
         ))
     } else {
@@ -217,6 +229,7 @@ fn main() -> Result<()> {
                     new_interval,
                     app.config.timeout,
                     app.config.port,
+                    bind_addr,
                     tx.clone(),
                 ));
             }

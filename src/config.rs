@@ -45,7 +45,9 @@ pub struct Config {
     #[arg(short, long, default_value = "44444")]
     pub port: u16,
 
-    /// Bind address for UDP server mode (e.g., 0.0.0.0, ::, 192.168.1.1)
+    /// Bind address / source IP for outgoing pings (e.g., 192.168.1.1).
+    /// Selects which network interface to send traffic from.
+    /// In server mode, controls which address to listen on.
     #[arg(long)]
     pub bind: Option<String>,
 

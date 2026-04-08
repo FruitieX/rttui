@@ -14,8 +14,8 @@ crossterm = "0.28"
 
 ctrlc = "3"
 
-# ICMP ping
-ping-rs = "0.1"
+# ICMP ping (vendored fork with source address binding support)
+ping-rs = { path = "ping-rs" }
 
 # Time utilities
 chrono = "0.4"
